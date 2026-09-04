@@ -90,6 +90,7 @@ a{color:#7cb7ff}
 .calibAdjustHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
 .calibAdjustHead strong{font-size:.84rem;color:#f4d03f}
 .calibAdjustHead span{font-size:.7rem;color:#9ca6a1}
+.hostAutoCorners{width:100%;min-height:42px;margin-bottom:8px;border:1px solid rgba(124,183,255,.5);border-radius:9px;background:rgba(124,183,255,.12);color:#9dcbff;font-weight:800}.hostAutoCorners:disabled{opacity:.55;cursor:wait}
 .cornerSelect{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
 .cornerSelect button,.nudgeBtns button{min-height:44px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:rgba(255,255,255,.06);color:#fff;font-weight:800}
 .cornerSelect button.active{background:#f4d03f;border-color:#f4d03f;color:#171717}
@@ -305,6 +306,7 @@ a{color:#7cb7ff}
         <strong>ボタンで微調整</strong>
         <span>長押しで連続移動できます</span>
       </div>
+      <button class="hostAutoCorners" id="hostAutoCorners" type="button">自動で四隅を探し直す</button>
       <div class="cornerSelect" id="cornerSelect">
         <button type="button" data-corner="0">① 画面左上</button>
         <button type="button" data-corner="1">② 画面右上</button>
@@ -546,6 +548,8 @@ const S = {
   calibrationStage: 'orientation',
   calibrationResetsOrientation: false,
   calibrationSelected: 0,
+  hostAutoBusy: false,
+  hostAutoSeq: 0,
   // Offscreen
   procCanvas: null,
   procCtx: null,
@@ -932,6 +936,7 @@ function updateCalibrationUI(){
 }
 function startCalibration(stage='orientation'){
   if(!S.videoEl || !S.videoEl.videoWidth){ toast('カメラが映ってから設定してください', true); return; }
+  S.hostAutoSeq++;S.hostAutoBusy=false;$('hostAutoCorners').disabled=false;$('hostAutoCorners').textContent='自動で四隅を探し直す';
   S.calibrating = true;
   S.calibrationStage = stage==='corners' && S.orientationConfirmed ? 'corners' : 'orientation';
   S.calibrationResetsOrientation = S.calibrationStage==='orientation';
@@ -947,6 +952,27 @@ function startCalibration(stage='orientation'){
   updateCalibrationUI();
   drawOverlay();
 }
+function setHostAutoBusy(busy){
+  S.hostAutoBusy=busy;const b=$('hostAutoCorners');b.disabled=busy;b.textContent=busy?'四隅を探索中…':'自動で四隅を探し直す';
+}
+function autoFindHostCorners(initial=false){
+  if(S.hostAutoBusy||!S.calibrating||S.calibrationStage!=='corners'||!S.videoEl?.videoWidth)return;
+  const run=++S.hostAutoSeq,seed=S.calibrationDraft.length===4?S.calibrationDraft:defaultCorners();setHostAutoBusy(true);
+  $('calibTitle').textContent='四隅を自動探索中';$('calibHelp').textContent='格子線を調べています。そのまま少しお待ちください';
+  setTimeout(()=>{
+    if(run!==S.hostAutoSeq||!S.calibrating)return;
+    try{
+      const result=estimateBoardCorners(S.videoEl,seed,S.size,300);
+      if(result.confident&&validRemoteCorners(result.corners)){
+        S.calibrationDraft=result.corners.map(p=>({...p}));S.calibrationSelected=0;updateCalibrationUI();drawOverlay();
+        $('calibTitle').textContent='自動候補を確認';$('calibHelp').textContent='白い①を確認し、必要なら下の矢印で直してください';toast('四隅の候補を置きました。確認してから開始してください');
+      }else{
+        updateCalibrationUI();drawOverlay();toast(initial?'自動検出が難しいため、現在の候補を表示します':'候補を見つけられませんでした',true);
+      }
+    }catch(e){updateCalibrationUI();drawOverlay();toast('自動検出に失敗しました。手動で調整できます',true);}
+    setHostAutoBusy(false);
+  },40);
+}
 function selectBlackSide(side){
   if(!BLACK_SIDE_LABELS[side]) return;
   S.blackSide = side;
@@ -956,9 +982,11 @@ function selectBlackSide(side){
   updateOrientationStatus();
   updateCalibrationUI();
   drawOverlay();
-  toast('黒番側を'+BLACK_SIDE_LABELS[side]+'に設定。四隅はスマホ画面基準で合わせます');
+  toast('黒番側を'+BLACK_SIDE_LABELS[side]+'に設定。四隅を自動で探します');
+  autoFindHostCorners(true);
 }
 function cancelCalibration(){
+  S.hostAutoSeq++;setHostAutoBusy(false);
   S.blackSide = S.calibrationOriginalSide;
   S.orientationConfirmed = S.calibrationOriginalConfirmed;
   S.calibrating = false;
@@ -996,6 +1024,7 @@ function finishCalibration(){
   const sideChanged = S.blackSide !== S.calibrationOriginalSide;
   const resetForOrientation = sideChanged || S.calibrationResetsOrientation;
   S.corners = S.calibrationDraft.map(p=>({...p}));
+  S.hostAutoSeq++;setHostAutoBusy(false);
   S.calibrating = false;
   S.calibrationDraft = [];
   S.draggingHandle = -1;
@@ -1773,7 +1802,7 @@ function validRemoteCorners(c){
   return Array.isArray(c)&&c.length===4&&c.every(p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1)&&isUsableQuad(c);
 }
 function closeHostSetupAfterRemote(){
-  S.calibrating=false;S.calibrationDraft=[];S.draggingHandle=-1;
+  S.hostAutoSeq++;setHostAutoBusy(false);S.calibrating=false;S.calibrationDraft=[];S.draggingHandle=-1;
   $('camArea').classList.remove('calibrating');$('calibAdjust').classList.remove('show');
   const details=document.querySelector('.settings');if(details)details.open=false;
   const main=document.querySelector('.bMain');if(main)main.scrollTo({top:0,behavior:'smooth'});
@@ -1932,8 +1961,9 @@ function broadcastState(force){
 // ============================================================
 // PEERJS VIEWING
 // ============================================================
-function estimateRemoteCorners(img,seed){
-  const scale=Math.min(1,420/img.naturalWidth),w=Math.max(80,Math.round(img.naturalWidth*scale)),h=Math.max(60,Math.round(img.naturalHeight*scale));
+function estimateBoardCorners(img,seed,boardSize=19,maxWidth=420){
+  const sourceW=img.naturalWidth||img.videoWidth,sourceH=img.naturalHeight||img.videoHeight;if(!sourceW||!sourceH)throw new Error('画像がありません');
+  const scale=Math.min(1,maxWidth/sourceW),w=Math.max(80,Math.round(sourceW*scale)),h=Math.max(60,Math.round(sourceH*scale));
   const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
   const px=ctx.getImageData(0,0,w,h).data,gray=new Float32Array(w*h);
   for(let i=0,j=0;i<px.length;i+=4,j++)gray[j]=px[i]*.299+px[i+1]*.587+px[i+2]*.114;
@@ -1943,7 +1973,7 @@ function estimateRemoteCorners(img,seed){
   };
   const score=q=>{
     if(!isUsableQuad(q))return -1e9;
-    const H=makeHomography(q.map(p=>({x:p.x*(w-1),y:p.y*(h-1)}))),N=R.size||19,d=.28/(N-1),e=.045/(N-1);let total=0,count=0;
+    const H=makeHomography(q.map(p=>({x:p.x*(w-1),y:p.y*(h-1)}))),N=boardSize||19,d=.28/(N-1),e=.045/(N-1);let total=0,count=0;
     const at=(u,v)=>{const p=H(u,v);return sample(p.x,p.y);};
     for(let i=0;i<N;i++)for(let j=0;j<N-1;j++){
       const u=i/(N-1),v=(j+.5)/(N-1),line=Math.min(at(u,v),at(clamp(u-e,0,1),v),at(clamp(u+e,0,1),v));
@@ -1984,7 +2014,7 @@ function autoFindRemoteCorners(initial=false){
   setTimeout(()=>{
     if(R.token!==requestToken)return;
     try{
-      const result=estimateRemoteCorners(img,seed);
+      const result=estimateBoardCorners(img,seed,R.size||19,420);
       if(result.confident&&validRemoteCorners(result.corners)){
         R.pendingCorners=result.corners.map(p=>({...p}));if(R.side)R.corners=R.pendingCorners.map(p=>({...p}));
         $('remoteHelp').textContent=R.side?'四隅の候補を置きました。拡大窓で確認して必要なら直してください。':'四隅の候補を置きました。次に黒番の方向を選んでください。';
@@ -2357,6 +2387,7 @@ function init(){
   document.querySelectorAll('#orientationPicker button[data-side]').forEach(b=>{
     b.addEventListener('click', ()=>selectBlackSide(b.dataset.side));
   });
+  $('hostAutoCorners').addEventListener('click',()=>autoFindHostCorners(false));
   $('calibCancel').addEventListener('click', cancelCalibration);
   $('calibDone').addEventListener('click', finishCalibration);
   $('calibUndo').addEventListener('click', ()=>{
