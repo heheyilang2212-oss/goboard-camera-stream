@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<meta name="theme-color" content="#1a1a1a">
+<title>碁盤カメラ中継</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0e0e10;color:#e8e8ea;font-family:'Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none}
+button,input,select{font-family:inherit;font-size:inherit}
+button{cursor:pointer}
+a{color:#7cb7ff}
+
+.screen{position:fixed;inset:0;display:none;flex-direction:column;overflow:hidden}
+.screen.active{display:flex}
+
+/* ============================================================
+   MODE SELECT
+   ============================================================ */
+#modeSelect{align-items:center;justify-content:center;gap:18px;padding:24px;background:linear-gradient(160deg,#1a2e1f,#0f1d14 60%,#0a0a0a)}
+#modeSelect h1{font-size:1.9rem;font-weight:900;letter-spacing:4px;color:#f4d03f;text-shadow:2px 2px 0 rgba(0,0,0,.4);margin-bottom:6px;text-align:center}
+#modeSelect .sub{font-size:.78rem;color:#8aa899;letter-spacing:2px;margin-bottom:14px;text-align:center}
+.modeBtn{width:100%;max-width:340px;padding:18px;border-radius:14px;background:rgba(255,255,255,.06);color:#fff;font-size:1.05rem;font-weight:700;display:flex;align-items:center;gap:14px;justify-content:center;border:1px solid rgba(255,255,255,.1);transition:all .15s}
+.modeBtn:hover,.modeBtn:active{background:rgba(244,208,63,.15);border-color:#f4d03f;transform:translateY(-1px)}
+.modeBtn .icon{font-size:1.4rem}
+#modeSelect .joinRow{display:flex;gap:8px;width:100%;max-width:340px;margin-top:6px}
+#modeSelect .joinRow input{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:#fff;outline:none;letter-spacing:2px;text-transform:uppercase}
+#modeSelect .joinRow input:focus{border-color:#f4d03f}
+#modeSelect .joinRow button{padding:0 16px;border-radius:10px;border:none;background:#f4d03f;color:#1a1a1a;font-weight:700}
+#modeSelect .info{font-size:.72rem;color:#6b7c75;line-height:1.6;text-align:center;max-width:340px;margin-top:8px}
+#modeSelect .err{font-size:.78rem;color:#ff6b6b;background:rgba(255,107,107,.1);padding:10px;border-radius:8px;border:1px solid rgba(255,107,107,.3);max-width:340px;width:100%;display:none}
+#modeSelect .err.show{display:block}
+
+/* ============================================================
+   COMMON HEADER
+   ============================================================ */
+.hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,0,0,.6);border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;z-index:5}
+.hdr .back{background:none;border:none;color:#e8e8ea;font-size:1.4rem;padding:4px 8px;line-height:1}
+.hdr .title{font-size:.9rem;font-weight:700;color:#f4d03f}
+.hdr .spacer{flex:1}
+.hdr select{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;padding:4px 8px;border-radius:6px;font-size:.78rem;max-width:140px}
+.hdr .sizeBtns{display:flex;gap:4px}
+.hdr .sizeBtns button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#bbb;padding:4px 10px;border-radius:6px;font-size:.75rem;font-weight:700}
+.hdr .sizeBtns button.active{background:#f4d03f;color:#1a1a1a;border-color:#f4d03f}
+
+/* ============================================================
+   BROADCASTER LAYOUT
+   ============================================================ */
+#broadcastScreen{background:#0a0a0a}
+.bMain{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:8px;-webkit-overflow-scrolling:touch}
+
+.cam-area{position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:4/3;flex-shrink:0}
+.cam-area video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.cam-area canvas#overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.cam-area .camHint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.7);padding:10px 16px;border-radius:8px;font-size:.78rem;color:#f4d03f;text-align:center;line-height:1.5;max-width:80%;display:none}
+.cam-area .camHint button{margin-top:8px;padding:6px 14px;border-radius:18px;border:1px solid #f4d03f;background:transparent;color:#f4d03f;font-weight:700;font-size:.78rem;cursor:pointer;pointer-events:auto}
+.cam-area.noCam .camHint{display:block}
+
+.board-area{width:100%;display:flex;justify-content:center;align-items:center;background:#13110d;border-radius:10px;padding:8px;flex-shrink:0}
+.board-area canvas{width:100%;max-width:480px;height:auto;display:block;touch-action:manipulation}
+
+.share{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+.share .row{display:flex;align-items:center;gap:8px;font-size:.8rem;flex-wrap:wrap}
+.share .row .lbl{color:#8aa899;flex-shrink:0;width:60px}
+.share .row .val{color:#f4d03f;font-weight:700;letter-spacing:1px;flex:1;min-width:0;word-break:break-all}
+.share .row .val.url{font-size:.72rem;color:#7cb7ff;font-weight:400;letter-spacing:0}
+.share .row button{padding:4px 10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;border-radius:6px;font-size:.72rem}
+.share .row .badge{display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(244,208,63,.2);color:#f4d03f;font-size:.7rem;font-weight:700}
+.share .row .badge.live{background:rgba(231,76,60,.2);color:#ff6b6b;animation:pulse 1.5s infinite}
+.share .row .badge.connecting{background:rgba(127,127,127,.2);color:#aaa}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+.settings{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;flex-shrink:0}
+.settings summary{padding:10px 14px;cursor:pointer;font-size:.85rem;font-weight:700;color:#bbb;list-style:none;display:flex;align-items:center;justify-content:space-between}
+.settings summary::-webkit-details-marker{display:none}
+.settings summary::after{content:'▼';font-size:.7rem;color:#666;transition:transform .2s}
+.settings[open] summary::after{transform:rotate(180deg)}
+.settings .sBody{padding:0 14px 12px;display:flex;flex-direction:column;gap:10px}
+.sRow{display:flex;flex-direction:column;gap:4px}
+.sRow .sHead{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:#8aa899}
+.sRow .sHead .v{color:#f4d03f;font-weight:700}
+.sRow input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:4px;background:rgba(255,255,255,.1);border-radius:2px;outline:none}
+.sRow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#f4d03f;cursor:pointer}
+.sRow input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#f4d03f;cursor:pointer;border:none}
+.sRow .togRow{display:flex;align-items:center;gap:8px;font-size:.78rem}
+.sRow .togRow input{width:18px;height:18px;accent-color:#f4d03f}
+
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0}
+.actions button{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff;font-size:.82rem;font-weight:700}
+.actions button.primary{background:linear-gradient(135deg,#f4d03f,#e6b800);color:#1a1a1a;border:none}
+.actions button:active{transform:scale(.97)}
+.actions button.full{grid-column:1/-1}
+
+.statusBar{background:rgba(0,0,0,.5);border-radius:8px;padding:6px 12px;font-size:.72rem;color:#8aa899;display:flex;gap:14px;flex-wrap:wrap;flex-shrink:0}
+.statusBar span b{color:#f4d03f}
+
+/* ============================================================
+   VIEWER LAYOUT
+   ============================================================ */
+#viewScreen{background:#0a0a0a}
+.vMain{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;gap:12px}
+.vBoardWrap{flex:1;display:flex;align-items:center;justify-content:center;width:100%;max-height:80vh}
+.vBoardWrap canvas{max-width:100%;max-height:100%;width:auto;height:auto}
+.vStatus{padding:8px 14px;border-radius:20px;background:rgba(0,0,0,.5);font-size:.78rem;color:#8aa899;text-align:center}
+.vStatus.connected{color:#7cffa7}
+.vStatus.disconnected{color:#ff6b6b}
+.vMeta{display:flex;gap:14px;font-size:.72rem;color:#6b7c75}
+.vMeta b{color:#f4d03f}
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+#toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.92);color:#fff;padding:10px 20px;border-radius:30px;font-size:.82rem;z-index:1000;opacity:0;pointer-events:none;transition:opacity .25s;border:1px solid rgba(244,208,63,.3);max-width:90%;text-align:center}
+#toast.show{opacity:1}
+#toast.err{border-color:#ff6b6b}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (min-width:760px){
+  .bMain{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto;gap:10px;padding:12px;align-content:start}
+  .cam-area{aspect-ratio:4/3}
+  .board-area{height:100%}
+  .share{grid-column:1/-1}
+  .settings{grid-column:1/-1}
+  .actions{grid-column:1/-1}
+  .statusBar{grid-column:1/-1}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     MODE SELECT
+     ============================================================ -->
+<section id="modeSelect" class="screen active">
+  <h1>碁盤カメラ中継</h1>
+  <div class="sub">GO BOARD CAMERA STREAM</div>
+  <button class="modeBtn" id="btnBroadcast"><span class="icon">📹</span><span>配信する（カメラを使う）</span></button>
+  <button class="modeBtn" id="btnView"><span class="icon">👁</span><span>観戦する</span></button>
+  <div class="joinRow">
+    <input id="joinId" placeholder="部屋IDを入力" maxlength="16" autocomplete="off">
+    <button id="btnJoin">参加</button>
+  </div>
+  <div class="info">配信側が表示する部屋IDを入力するか、配信側が共有したURLを開いてください。</div>
+  <div class="err" id="modeErr"></div>
+</section>
+
+<!-- ============================================================
+     BROADCASTER
+     ============================================================ -->
+<section id="broadcastScreen" class="screen">
+  <div class="hdr">
+    <button class="back" id="bExit">◀</button>
+    <span class="title">配信</span>
+    <div class="sizeBtns">
+      <button data-size="9">9</button>
+      <button data-size="13">13</button>
+      <button data-size="19" class="active">19</button>
+    </div>
+    <div class="spacer"></div>
+    <select id="cameraSelect"><option value="">カメラ自動</option></select>
+  </div>
+  <div class="bMain">
+    <div class="cam-area" id="camArea">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="camHint">
+        <div id="camHintMsg">カメラを起動してください</div>
+        <button id="camRetry">もう一度試す</button>
+      </div>
+    </div>
+    <div class="board-area">
+      <canvas id="boardB" width="500" height="500"></canvas>
+    </div>
+    <div class="share">
+      <div class="row">
+        <span class="lbl">部屋ID</span>
+        <span class="val" id="roomId">準備中...</span>
+        <button id="copyId">コピー</button>
+        <button id="newId" title="新しい部屋IDを発行">↻</button>
+        <span class="badge connecting" id="liveBadge">接続中</span>
+      </div>
+      <div class="row">
+        <span class="lbl">視聴URL</span>
+        <span class="val url" id="viewUrl">--</span>
+        <button id="copyUrl">コピー</button>
+      </div>
+      <div class="row">
+        <span class="lbl">視聴者</span>
+        <span class="val" id="viewerCount">0</span>
+        <span style="color:#666;font-size:.72rem">名接続中</span>
+      </div>
+    </div>
+    <details class="settings">
+      <summary>設定 ・ しきい値調整</summary>
+      <div class="sBody">
+        <div class="sRow">
+          <div class="sHead">黒の検出強度 <span class="v" id="blackVal">55</span></div>
+          <input type="range" id="blackTh" min="10" max="120" value="55">
+        </div>
+        <div class="sRow">
+          <div class="sHead">白の検出強度 <span class="v" id="whiteVal">30</span></div>
+          <input type="range" id="whiteTh" min="5" max="120" value="30">
+        </div>
+        <div class="sRow">
+          <div class="sHead">安定化フレーム数 <span class="v" id="histVal">10</span></div>
+          <input type="range" id="histDepth" min="3" max="30" value="10">
+        </div>
+        <div class="sRow">
+          <div class="sHead">処理FPS <span class="v" id="fpsVal">8</span></div>
+          <input type="range" id="targetFps" min="2" max="20" value="8">
+        </div>
+        <div class="sRow">
+          <div class="togRow"><input type="checkbox" id="dbgOverlay"> <label for="dbgOverlay">認識結果をカメラに重ねて表示</label></div>
+        </div>
+        <div class="sRow">
+          <div class="togRow"><input type="checkbox" id="autoTurn" checked> <label for="autoTurn">手番を石数から自動推定</label></div>
+        </div>
+        <div class="sRow">
+          <div class="togRow"><input type="checkbox" id="trackMoves" checked> <label for="trackMoves">着手履歴を記録（SGFに含める）</label></div>
+        </div>
+        <div class="sRow">
+          <div class="togRow"><input type="checkbox" id="soundOn"> <label for="soundOn">新しい着手で音を鳴らす</label></div>
+        </div>
+        <div class="sRow">
+          <div class="togRow"><input type="checkbox" id="showMoveNum"> <label for="showMoveNum">直近の手数を盤上に表示</label></div>
+        </div>
+      </div>
+    </details>
+    <div class="statusBar">
+      <span><span id="stableDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#666;vertical-align:middle;margin-right:4px"></span><span id="stableLbl">--</span></span>
+      <span>処理: <b id="procFps">--</b> fps</span>
+      <span>黒 <b id="bCount">0</b></span>
+      <span>白 <b id="wCount">0</b></span>
+      <span>手数 <b id="moveCount">0</b></span>
+      <span id="turnInd">手番: --</span>
+    </div>
+    <div class="actions">
+      <button id="btnReset">隅をリセット</button>
+      <button id="btnRotate">盤を90°回転</button>
+      <button id="btnSetInitial">現在を初手前に設定</button>
+      <button id="btnClearMoves">履歴クリア</button>
+      <button id="btnRecalib">再キャリブレ</button>
+      <button id="btnPng">盤面をPNG保存</button>
+      <button id="btnUndo">最終手を取消</button>
+      <button class="primary full" id="btnSGF">SGFをダウンロード</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     VIEWER
+     ============================================================ -->
+<section id="viewScreen" class="screen">
+  <div class="hdr">
+    <button class="back" id="vExit">◀</button>
+    <span class="title">観戦</span>
+    <span style="font-size:.78rem;color:#888;margin-left:8px">部屋: <b id="vRoomId" style="color:#f4d03f">--</b></span>
+  </div>
+  <div class="vMain">
+    <div class="vBoardWrap">
+      <canvas id="boardV" width="500" height="500"></canvas>
+    </div>
+    <div class="vStatus" id="vStatus">接続中...</div>
+    <div class="vMeta">
+      <span>黒 <b id="vBCount">0</b></span>
+      <span>白 <b id="vWCount">0</b></span>
+      <span>手数 <b id="vMoveCount">0</b></span>
+      <span id="vTurn"></span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+      <button id="vSoundBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font-size:.78rem">🔇 音オフ</button>
+      <button id="vNumBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font-size:.78rem">手番表示 オフ</button>
+      <button id="vSgfBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(244,208,63,.5);background:rgba(244,208,63,.15);color:#f4d03f;font-size:.78rem">SGFダウンロード</button>
+    </div>
+  </div>
+</section>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script>
+'use strict';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+const STAR_POINTS = {
+  9:  [[2,2],[2,6],[6,2],[6,6],[4,4]],
+  13: [[3,3],[3,9],[9,3],[9,9],[6,6]],
+  19: [[3,3],[3,9],[3,15],[9,3],[9,9],[9,15],[15,3],[15,9],[15,15]],
+};
+const PROC_W = 640;          // downscaled processing width
+const PEER_PREFIX = 'goboard-';
+const STORAGE_KEY = 'goboard.settings.v1';
+
+// ============================================================
+// STATE
+// ============================================================
+const S = {
+  mode: 'select',
+  size: 19,
+  // Corner positions in normalized [0,1] video coords (intersection corners, in TL/TR/BR/BL order)
+  corners: null,
+  // Detection
+  history: null,           // size×size of arrays of recent classifications
+  committed: null,         // size×size: 'B'|'W'|'.' final state
+  prevCommitted: null,     // for diffing
+  // Settings
+  blackTh: 55,
+  whiteTh: 30,
+  histDepth: 10,
+  targetFps: 8,
+  dbgOverlay: false,
+  autoTurn: true,
+  trackMoves: true,
+  soundOn: false,
+  showMoveNum: false,
+  // Move history
+  moves: [],               // [{c:'B'|'W', x:i, y:j}]
+  initialPosition: null,   // committed snapshot at the moment tracking started
+  movesInitialized: false,
+  suspiciousFrames: 0,
+  turn: 'B',
+  lastMoveTime: 0,
+  vPrevMoveCount: 0,       // viewer side: previous move count for diff
+  vLatestState: null,      // viewer side: most recent state from broadcaster
+  // Camera
+  stream: null,
+  videoEl: null,
+  cameras: [],
+  selectedCamId: null,
+  // Loop
+  loopHandle: null,
+  lastProcTime: 0,
+  procFpsMA: 0,
+  // Occlusion rejection
+  lastAcceptedClass: null,
+  consecutiveRejects: 0,
+  // Peer
+  peer: null,
+  peerId: null,
+  conns: [],               // broadcaster: list of viewer DataConnections
+  conn: null,              // viewer: connection to broadcaster
+  reconnectTimer: null,
+  // UI
+  draggingHandle: -1,
+  // Offscreen
+  procCanvas: null,
+  procCtx: null,
+};
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function $(id){return document.getElementById(id)}
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $(name).classList.add('active');
+  S.mode = name === 'modeSelect' ? 'select' : (name === 'broadcastScreen' ? 'broadcast' : 'view');
+}
+function toast(msg, isErr){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('err', !!isErr);
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function clamp(v,a,b){return v<a?a:v>b?b:v}
+function median(arr){
+  const a = arr.slice().sort((x,y)=>x-y);
+  const n = a.length;
+  if(!n) return 0;
+  return n%2 ? a[(n-1)>>1] : (a[n/2-1]+a[n/2])/2;
+}
+function loadSettings(){
+  try{
+    const j = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if(j.size) S.size = j.size;
+    if(j.corners) S.corners = j.corners;
+    if(typeof j.blackTh === 'number') S.blackTh = j.blackTh;
+    if(typeof j.whiteTh === 'number') S.whiteTh = j.whiteTh;
+    if(typeof j.histDepth === 'number') S.histDepth = j.histDepth;
+    if(typeof j.targetFps === 'number') S.targetFps = j.targetFps;
+    if(typeof j.dbgOverlay === 'boolean') S.dbgOverlay = j.dbgOverlay;
+    if(typeof j.autoTurn === 'boolean') S.autoTurn = j.autoTurn;
+    if(typeof j.trackMoves === 'boolean') S.trackMoves = j.trackMoves;
+    if(typeof j.soundOn === 'boolean') S.soundOn = j.soundOn;
+    if(typeof j.showMoveNum === 'boolean') S.showMoveNum = j.showMoveNum;
+    if(j.selectedCamId) S.selectedCamId = j.selectedCamId;
+  }catch(e){}
+}
+function saveSettings(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      size: S.size,
+      corners: S.corners,
+      blackTh: S.blackTh,
+      whiteTh: S.whiteTh,
+      histDepth: S.histDepth,
+      targetFps: S.targetFps,
+      dbgOverlay: S.dbgOverlay,
+      autoTurn: S.autoTurn,
+      trackMoves: S.trackMoves,
+      soundOn: S.soundOn,
+      showMoveNum: S.showMoveNum,
+      selectedCamId: S.selectedCamId,
+    }));
+  }catch(e){}
+}
+function makeShortId(){
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for(let i=0;i<6;i++) s += chars[(Math.random()*chars.length)|0];
+  return s;
+}
+
+let _audioCtx = null;
+function playStoneClick(){
+  if(!S.soundOn) return;
+  try{
+    if(!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(_audioCtx.state === 'suspended') _audioCtx.resume();
+    const t = _audioCtx.currentTime;
+    const o = _audioCtx.createOscillator();
+    const g = _audioCtx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(820, t);
+    o.frequency.exponentialRampToValueAtTime(180, t + 0.07);
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
+    o.connect(g); g.connect(_audioCtx.destination);
+    o.start(t); o.stop(t + 0.12);
+  }catch(e){}
+}
+
+// ============================================================
+// HOMOGRAPHY: unit square (u,v)∈[0,1]² → quad (TL,TR,BR,BL)
+// Closed-form. Used to map every grid intersection to image px.
+// ============================================================
+function makeHomography(c){
+  const [TL, TR, BR, BL] = c;
+  const x0=TL.x, y0=TL.y, x1=TR.x, y1=TR.y, x2=BR.x, y2=BR.y, x3=BL.x, y3=BL.y;
+  const dx1 = x1-x2, dx3 = x3-x2, dy1 = y1-y2, dy3 = y3-y2;
+  const sx  = (x0+x2) - (x1+x3);
+  const sy  = (y0+y2) - (y1+y3);
+  const det = dx1*dy3 - dx3*dy1;
+  let g, h;
+  if(Math.abs(det) < 1e-9){ g = 0; h = 0; }
+  else{ g = (sx*dy3 - sy*dx3) / det; h = (sy*dx1 - sx*dy1) / det; }
+  const a = (g+1)*x1 - x0;
+  const b = (h+1)*x3 - x0;
+  const c0= x0;
+  const d = (g+1)*y1 - y0;
+  const e = (h+1)*y3 - y0;
+  const f = y0;
+  return (u,v)=>{
+    const w = g*u + h*v + 1;
+    return { x: (a*u + b*v + c0)/w, y: (d*u + e*v + f)/w };
+  };
+}
+
+// ============================================================
+// CAMERA
+// ============================================================
+async function listCameras(){
+  try{
+    const list = await navigator.mediaDevices.enumerateDevices();
+    S.cameras = list.filter(d => d.kind === 'videoinput');
+    const sel = $('cameraSelect');
+    sel.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = '自動 (背面優先)';
+    sel.appendChild(opt0);
+    S.cameras.forEach((c,i)=>{
+      const o = document.createElement('option');
+      o.value = c.deviceId;
+      o.textContent = c.label || ('カメラ '+(i+1));
+      sel.appendChild(o);
+    });
+    if(S.selectedCamId && S.cameras.some(c=>c.deviceId===S.selectedCamId)) sel.value = S.selectedCamId;
+  }catch(e){
+    console.warn('enumerateDevices failed', e);
+  }
+}
+async function startCamera(){
+  stopCamera();
+  const id = $('cameraSelect').value;
+  S.selectedCamId = id || null;
+  saveSettings();
+  let constraints;
+  if(id){
+    constraints = { video: { deviceId: { exact: id }, width:{ideal:1920}, height:{ideal:1080} }, audio: false };
+  } else {
+    constraints = { video: { facingMode: { ideal: 'environment' }, width:{ideal:1920}, height:{ideal:1080} }, audio: false };
+  }
+  try{
+    S.stream = await navigator.mediaDevices.getUserMedia(constraints);
+  }catch(e){
+    if(id){
+      try{ S.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+      catch(e2){ throw e2; }
+    } else { throw e; }
+  }
+  S.videoEl = $('cam');
+  S.videoEl.srcObject = S.stream;
+  await new Promise(res=>{
+    if(S.videoEl.readyState >= 2) return res();
+    S.videoEl.onloadedmetadata = ()=>res();
+  });
+  $('camArea').classList.remove('noCam');
+  // After permission we get labels
+  await listCameras();
+  resizeOverlay();
+}
+function stopCamera(){
+  if(S.stream){
+    S.stream.getTracks().forEach(t=>t.stop());
+    S.stream = null;
+  }
+  if(S.videoEl) S.videoEl.srcObject = null;
+}
+
+// ============================================================
+// CORNER HANDLES (overlay canvas)
+// ============================================================
+function defaultCorners(){
+  return [
+    {x:0.20, y:0.18},
+    {x:0.80, y:0.18},
+    {x:0.80, y:0.82},
+    {x:0.20, y:0.82},
+  ];
+}
+function ensureCorners(){
+  if(!S.corners || S.corners.length !== 4) S.corners = defaultCorners();
+}
+function resizeOverlay(){
+  const ov = $('overlay');
+  const v = $('cam');
+  const r = ov.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  ov.width  = Math.max(1, r.width  * dpr);
+  ov.height = Math.max(1, r.height * dpr);
+  // Update procCanvas size based on video aspect ratio
+  if(v.videoWidth){
+    const aspect = v.videoHeight / v.videoWidth;
+    S.procCanvas.width = PROC_W;
+    S.procCanvas.height = Math.round(PROC_W * aspect);
+  }
+}
+window.addEventListener('resize', ()=>{
+  if(S.mode==='broadcast'){ resizeOverlay(); drawBoardCanvas('boardB'); }
+  else if(S.mode==='view' && S.vLatestState){
+    drawBoardCanvas('boardV', {
+      size: S.vLatestState.size,
+      committed: S.vLatestState.committed,
+      lastMove: S.vLatestState.moves && S.vLatestState.moves.length ? S.vLatestState.moves[S.vLatestState.moves.length-1] : null,
+      moves: S.vLatestState.moves,
+    });
+  }
+});
+
+function videoDisplayRect(){
+  // The <video> element uses object-fit:contain. Compute the actual displayed rect of video pixels within the element.
+  const v = $('cam');
+  const ov = $('overlay');
+  const elW = ov.width, elH = ov.height;
+  if(!v.videoWidth || !v.videoHeight) return {x:0, y:0, w:elW, h:elH};
+  const elR = elW / elH, vR = v.videoWidth / v.videoHeight;
+  let w, h, x, y;
+  if(vR > elR){ // video wider than element area: fit width
+    w = elW; h = elW / vR; x = 0; y = (elH - h)/2;
+  } else {
+    h = elH; w = elH * vR; y = 0; x = (elW - w)/2;
+  }
+  return {x, y, w, h};
+}
+function normToOverlay(p){
+  const r = videoDisplayRect();
+  return { x: r.x + p.x * r.w, y: r.y + p.y * r.h };
+}
+function overlayToNorm(px, py){
+  const r = videoDisplayRect();
+  return { x: clamp((px - r.x) / r.w, 0, 1), y: clamp((py - r.y) / r.h, 0, 1) };
+}
+
+const HANDLE_R = 22;
+function drawOverlay(){
+  const ov = $('overlay');
+  const ctx = ov.getContext('2d');
+  ctx.clearRect(0,0,ov.width,ov.height);
+  if(!S.corners) return;
+  const pts = S.corners.map(normToOverlay);
+  // Quad outline
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(244,208,63,.85)';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<4;i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.stroke();
+  // Internal grid preview
+  if(S.committed){
+    const H = makeHomography(pts);
+    const N = S.size;
+    ctx.strokeStyle = 'rgba(244,208,63,.18)';
+    ctx.lineWidth = 1;
+    for(let i=0;i<N;i++){
+      const u = i/(N-1);
+      let p = H(u, 0);
+      ctx.beginPath(); ctx.moveTo(p.x, p.y);
+      const p2 = H(u, 1); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      const p3 = H(0, u); ctx.beginPath(); ctx.moveTo(p3.x, p3.y);
+      const p4 = H(1, u); ctx.lineTo(p4.x, p4.y); ctx.stroke();
+    }
+    if(S.dbgOverlay){
+      for(let i=0;i<N;i++){
+        for(let j=0;j<N;j++){
+          const c = S.committed[i][j];
+          if(c === '.') continue;
+          const p = H(i/(N-1), j/(N-1));
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 7, 0, Math.PI*2);
+          ctx.fillStyle = c==='B' ? 'rgba(0,0,0,.85)' : 'rgba(255,255,255,.85)';
+          ctx.fill();
+          ctx.strokeStyle = c==='B' ? 'rgba(255,255,255,.6)' : 'rgba(0,0,0,.6)';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  // Crosshair on the active handle (alignment helper while dragging)
+  if(S.draggingHandle >= 0){
+    const p = pts[S.draggingHandle];
+    ctx.strokeStyle = 'rgba(244,208,63,.9)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.moveTo(p.x, 0); ctx.lineTo(p.x, ov.height);
+    ctx.moveTo(0, p.y); ctx.lineTo(ov.width, p.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // Handles
+  for(let i=0;i<4;i++){
+    const p = pts[i];
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, HANDLE_R, 0, Math.PI*2);
+    ctx.fillStyle = i === S.draggingHandle ? 'rgba(244,208,63,.85)' : 'rgba(244,208,63,.35)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((i+1).toString(), p.x, p.y);
+  }
+}
+function findHandle(x,y){
+  if(!S.corners) return -1;
+  for(let i=0;i<4;i++){
+    const p = normToOverlay(S.corners[i]);
+    if(Math.hypot(x - p.x, y - p.y) <= HANDLE_R + 6) return i;
+  }
+  return -1;
+}
+function attachOverlayInput(){
+  const ov = $('overlay');
+  function evtPos(e){
+    const r = ov.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    const sx = ov.width / r.width;
+    const sy = ov.height / r.height;
+    return { x: (t.clientX - r.left) * sx, y: (t.clientY - r.top) * sy };
+  }
+  ov.addEventListener('pointerdown', e=>{
+    const p = evtPos(e);
+    const idx = findHandle(p.x, p.y);
+    if(idx >= 0){
+      S.draggingHandle = idx;
+      ov.setPointerCapture(e.pointerId);
+      drawOverlay();
+    }
+    e.preventDefault();
+  });
+  ov.addEventListener('pointermove', e=>{
+    if(S.draggingHandle < 0) return;
+    const p = evtPos(e);
+    const n = overlayToNorm(p.x, p.y);
+    S.corners[S.draggingHandle] = n;
+    drawOverlay();
+    e.preventDefault();
+  });
+  function endDrag(e){
+    if(S.draggingHandle < 0) return;
+    S.draggingHandle = -1;
+    saveSettings();
+    drawOverlay();
+  }
+  ov.addEventListener('pointerup', endDrag);
+  ov.addEventListener('pointercancel', endDrag);
+  ov.addEventListener('lostpointercapture', endDrag);
+}
+
+// ============================================================
+// DETECTION
+// ============================================================
+function initDetectionState(){
+  const N = S.size;
+  S.history = Array.from({length:N}, ()=>Array.from({length:N}, ()=>[]));
+  S.committed = Array.from({length:N}, ()=>Array.from({length:N}, ()=>'.'));
+  S.prevCommitted = Array.from({length:N}, ()=>Array.from({length:N}, ()=>'.'));
+  S.lastAcceptedClass = null;
+  S.consecutiveRejects = 0;
+}
+function pushHistory(i, j, val){
+  const buf = S.history[i][j];
+  buf.push(val);
+  while(buf.length > S.histDepth) buf.shift();
+}
+function commitFromHistory(){
+  const N = S.size, K = S.histDepth;
+  const minVotes = Math.max(2, Math.ceil(K * 0.7));
+  for(let i=0;i<N;i++){
+    for(let j=0;j<N;j++){
+      const buf = S.history[i][j];
+      if(buf.length < Math.min(K, 3)) continue;
+      let cB=0, cW=0, cE=0;
+      for(let k=0;k<buf.length;k++){
+        const v = buf[k];
+        if(v==='B') cB++; else if(v==='W') cW++; else cE++;
+      }
+      const top = Math.max(cB, cW, cE);
+      if(top >= Math.min(minVotes, buf.length)){
+        const newVal = (top===cB)?'B':(top===cW)?'W':'.';
+        S.committed[i][j] = newVal;
+      }
+    }
+  }
+}
+function detectFrame(){
+  if(!S.videoEl || !S.videoEl.videoWidth) return;
+  ensureCorners();
+  const v = S.videoEl;
+  const cnv = S.procCanvas;
+  const ctx = S.procCtx;
+  // (Re)size if needed
+  const aspect = v.videoHeight / v.videoWidth;
+  const targetH = Math.round(PROC_W * aspect);
+  if(cnv.width !== PROC_W || cnv.height !== targetH){
+    cnv.width = PROC_W;
+    cnv.height = targetH;
+  }
+  ctx.drawImage(v, 0, 0, cnv.width, cnv.height);
+  let imgData;
+  try{ imgData = ctx.getImageData(0, 0, cnv.width, cnv.height); }
+  catch(e){ return; }
+  const data = imgData.data;
+  const W = cnv.width, H = cnv.height;
+  const cornersPx = S.corners.map(c=>({ x: c.x*W, y: c.y*H }));
+  const Hg = makeHomography(cornersPx);
+  const N = S.size;
+  // Estimate grid spacing in pixels
+  const dxAvg = (Math.hypot(cornersPx[1].x-cornersPx[0].x, cornersPx[1].y-cornersPx[0].y)
+              + Math.hypot(cornersPx[2].x-cornersPx[3].x, cornersPx[2].y-cornersPx[3].y)) / 2 / (N-1);
+  const dyAvg = (Math.hypot(cornersPx[3].x-cornersPx[0].x, cornersPx[3].y-cornersPx[0].y)
+              + Math.hypot(cornersPx[2].x-cornersPx[1].x, cornersPx[2].y-cornersPx[1].y)) / 2 / (N-1);
+  const spacing = Math.min(dxAvg, dyAvg);
+  if(!isFinite(spacing) || spacing < 4) return;
+  const patchR = Math.max(2, Math.min(12, Math.round(spacing * 0.30)));
+
+  // 1st pass: compute median V at each intersection
+  const Vs = new Float32Array(N*N);
+  const Ss = new Float32Array(N*N);  // saturation proxy (max-min)/max
+  const buf = []; // temp for per-patch sort
+  for(let i=0;i<N;i++){
+    const u = i/(N-1);
+    for(let j=0;j<N;j++){
+      const vN = j/(N-1);
+      const p = Hg(u, vN);
+      const cx = p.x|0, cy = p.y|0;
+      buf.length = 0;
+      let smax = 0;
+      for(let dy=-patchR; dy<=patchR; dy++){
+        const y = cy + dy;
+        if(y < 0 || y >= H) continue;
+        for(let dx=-patchR; dx<=patchR; dx++){
+          if(dx*dx + dy*dy > patchR*patchR) continue;
+          const x = cx + dx;
+          if(x < 0 || x >= W) continue;
+          const o = (y*W + x) * 4;
+          const r = data[o], g = data[o+1], b = data[o+2];
+          const mx = r>g?(r>b?r:b):(g>b?g:b);
+          const mn = r<g?(r<b?r:b):(g<b?g:b);
+          buf.push(mx);
+          const s = mx>0 ? (mx-mn)/mx : 0;
+          if(s > smax) smax = s;
+        }
+      }
+      const m = median(buf);
+      Vs[i*N + j] = m;
+      Ss[i*N + j] = smax;
+    }
+  }
+  // Estimate board reference brightness as median of all intersections.
+  // Most points are empty (= wood) for typical positions, so median ≈ wood V.
+  const Vall = Array.from(Vs);
+  const ref = median(Vall);
+  // Pass 1: classify with the global reference
+  const cls1 = new Array(N);
+  for(let i=0;i<N;i++){
+    cls1[i] = new Array(N);
+    for(let j=0;j<N;j++){
+      const v = Vs[i*N + j];
+      cls1[i][j] = (v < ref - S.blackTh) ? 'B' : (v > ref + S.whiteTh) ? 'W' : '.';
+    }
+  }
+  // Pass 2: refine with a local reference computed from nearby cells
+  // classified as empty in pass 1. Helps boards with non-uniform lighting
+  // (window light on one side, etc.). Falls back to the global ref when no
+  // empty neighbours exist (highly populated region).
+  const cls = new Array(N);
+  const radius = 2;
+  const tmp = [];
+  for(let i=0;i<N;i++){
+    cls[i] = new Array(N);
+    for(let j=0;j<N;j++){
+      tmp.length = 0;
+      for(let di=-radius; di<=radius; di++){
+        const ni = i+di;
+        if(ni<0||ni>=N) continue;
+        for(let dj=-radius; dj<=radius; dj++){
+          const nj = j+dj;
+          if(nj<0||nj>=N) continue;
+          if(cls1[ni][nj] === '.') tmp.push(Vs[ni*N + nj]);
+        }
+      }
+      const lref = tmp.length >= 4 ? median(tmp) : ref;
+      const v = Vs[i*N + j];
+      cls[i][j] = (v < lref - S.blackTh) ? 'B' : (v > lref + S.whiteTh) ? 'W' : '.';
+    }
+  }
+  // Occlusion / spike rejection: if this frame's classification differs from the
+  // last accepted frame by too many cells at once, the camera was likely partially
+  // covered (a hand reaching to play, etc.). Skip it from the history so the
+  // committed state is not corrupted. Force-accept after too many rejections so
+  // we don't get stuck on a genuinely changed scene.
+  const burstLimit = Math.max(3, Math.floor(N*N * 0.04));
+  let diff = 0;
+  if(S.lastAcceptedClass){
+    for(let i=0;i<N && diff <= burstLimit+1;i++){
+      for(let j=0;j<N;j++){
+        if(cls[i][j] !== S.lastAcceptedClass[i][j]) diff++;
+      }
+    }
+  }
+  const accept = !S.lastAcceptedClass || diff <= burstLimit;
+  if(accept){
+    S.lastAcceptedClass = cls;
+    S.consecutiveRejects = 0;
+    for(let i=0;i<N;i++) for(let j=0;j<N;j++) pushHistory(i, j, cls[i][j]);
+  } else {
+    S.consecutiveRejects++;
+    if(S.consecutiveRejects > 25){
+      // Long sustained difference — assume scene actually changed.
+      S.lastAcceptedClass = cls;
+      S.consecutiveRejects = 0;
+      for(let i=0;i<N;i++) for(let j=0;j<N;j++) pushHistory(i, j, cls[i][j]);
+    }
+  }
+  commitFromHistory();
+  // Move tracking
+  if(S.trackMoves) trackMoves();
+  // Counts
+  let bc=0, wc=0;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    if(S.committed[i][j]==='B') bc++;
+    else if(S.committed[i][j]==='W') wc++;
+  }
+  $('bCount').textContent = bc;
+  $('wCount').textContent = wc;
+  if(S.autoTurn){
+    S.turn = (bc <= wc) ? 'B' : 'W';
+  }
+  $('turnInd').innerHTML = '手番: <b>' + (S.turn==='B' ? '黒●' : '白○') + '</b>';
+  // Stability indicator
+  let sCol = '#7cffa7', sLbl = '安定';
+  if(S.consecutiveRejects > 10){ sCol = '#ff6b6b'; sLbl = '不安定'; }
+  else if(S.consecutiveRejects > 3 || S.suspiciousFrames > 5){ sCol = '#f4d03f'; sLbl = 'やや不安定'; }
+  $('stableDot').style.background = sCol;
+  $('stableLbl').textContent = sLbl;
+  drawBoardCanvas('boardB');
+  drawOverlay();
+  broadcastState();
+}
+function snapshotCommitted(){
+  const N = S.size;
+  const out = new Array(N);
+  for(let i=0;i<N;i++){ out[i] = S.committed[i].slice(); }
+  return out;
+}
+function syncPrevToCommitted(){
+  const N = S.size;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++) S.prevCommitted[i][j] = S.committed[i][j];
+}
+function trackMoves(){
+  const N = S.size;
+  // Wait for the detection history to be reasonably full before considering the
+  // first stable frame to be the "initial position". Stones already on the board
+  // when the broadcaster starts will be captured as setup (AB/AW) rather than
+  // recorded as moves.
+  if(!S.movesInitialized){
+    let bufFull = true;
+    for(let i=0;i<N && bufFull;i++) for(let j=0;j<N;j++){
+      if(S.history[i][j].length < S.histDepth){ bufFull = false; break; }
+    }
+    if(!bufFull) return;
+    syncPrevToCommitted();
+    S.initialPosition = snapshotCommitted();
+    S.movesInitialized = true;
+    return;
+  }
+  // Diff prev → current
+  const newOnes = [];
+  let bDelta = 0, wDelta = 0;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const a = S.prevCommitted[i][j], b = S.committed[i][j];
+    if(a === b) continue;
+    if(a === '.' && b === 'B'){ newOnes.push({c:'B',x:i,y:j}); bDelta++; }
+    else if(a === '.' && b === 'W'){ newOnes.push({c:'W',x:i,y:j}); wDelta++; }
+    else if(a === 'B' && b === 'W'){ newOnes.push({c:'W',x:i,y:j}); wDelta++; }
+    else if(a === 'W' && b === 'B'){ newOnes.push({c:'B',x:i,y:j}); bDelta++; }
+    // a !== '.' && b === '.' — removed (capture). No move recorded for it.
+  }
+  if(newOnes.length === 0){
+    syncPrevToCommitted();
+    S.suspiciousFrames = 0;
+    return;
+  }
+  if(bDelta > 1 || wDelta > 1){
+    // Likely recognition flicker; wait. If it persists too long, force-resync.
+    S.suspiciousFrames++;
+    if(S.suspiciousFrames > 40){
+      syncPrevToCommitted();
+      S.suspiciousFrames = 0;
+      toast('認識が不安定です。基準位置を再同期しました', true);
+    }
+    return;
+  }
+  S.suspiciousFrames = 0;
+  // If both colors moved between samples (rare, only possible with very low FPS), record B first.
+  const bs = newOnes.filter(m=>m.c==='B');
+  const ws = newOnes.filter(m=>m.c==='W');
+  for(const m of bs) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
+  for(const m of ws) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
+  syncPrevToCommitted();
+  $('moveCount').textContent = S.moves.length;
+  S.lastMoveTime = Date.now();
+  playStoneClick();
+}
+
+// ============================================================
+// BOARD RENDERING (Canvas, used by both broadcaster and viewer)
+// ============================================================
+function drawBoardCanvas(canvasId, override){
+  const cnv = $(canvasId);
+  const ctx = cnv.getContext('2d');
+  const N = (override && override.size) || S.size;
+  const stones = (override && override.committed) || S.committed;
+  const moves = (override && override.moves) || (canvasId === 'boardB' ? S.moves : null);
+  const showNums = S.showMoveNum;
+  // Logical size
+  const css = cnv.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const want = Math.max(300, Math.min(720, Math.round((css.width||500) * dpr)));
+  if(cnv.width !== want){ cnv.width = want; cnv.height = want; }
+  const W = cnv.width;
+  const margin = W * 0.04;
+  const inner = W - margin*2;
+  const step = inner / (N-1);
+  // Background
+  ctx.clearRect(0,0,W,W);
+  const grad = ctx.createLinearGradient(0,0,0,W);
+  grad.addColorStop(0, '#e6c07a');
+  grad.addColorStop(1, '#d4a55a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,W);
+  // Wood grain
+  ctx.globalAlpha = 0.06;
+  for(let i=0;i<22;i++){
+    ctx.fillStyle = i%2 ? '#7a4a1a' : '#a06530';
+    const yy = (i/22)*W;
+    ctx.fillRect(0, yy, W, W/22 + 1);
+  }
+  ctx.globalAlpha = 1;
+  // Lines
+  ctx.strokeStyle = '#1a1208';
+  ctx.lineWidth = Math.max(1, W/600);
+  for(let i=0;i<N;i++){
+    const x = margin + i*step;
+    ctx.beginPath(); ctx.moveTo(x, margin); ctx.lineTo(x, margin + (N-1)*step); ctx.stroke();
+    const y = margin + i*step;
+    ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(margin + (N-1)*step, y); ctx.stroke();
+  }
+  // Star points
+  const stars = STAR_POINTS[N] || [];
+  ctx.fillStyle = '#1a1208';
+  for(const [a,b] of stars){
+    const x = margin + a*step;
+    const y = margin + b*step;
+    ctx.beginPath(); ctx.arc(x, y, Math.max(2, step*0.10), 0, Math.PI*2); ctx.fill();
+  }
+  // Coordinates
+  ctx.fillStyle = '#5a3a1a';
+  ctx.font = 'bold ' + Math.max(8, Math.round(step*0.32)) + 'px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const letters = 'ABCDEFGHJKLMNOPQRST';
+  for(let i=0;i<N;i++){
+    const x = margin + i*step;
+    ctx.fillText(letters[i], x, margin*0.5);
+    ctx.fillText(letters[i], x, margin*1.5 + (N-1)*step - margin*0.0);
+    const y = margin + i*step;
+    ctx.fillText(String(N - i), margin*0.5, y);
+    ctx.fillText(String(N - i), margin*1.5 + (N-1)*step - margin*0.0, y);
+  }
+  // Stones
+  if(stones){
+    const stoneR = step * 0.46;
+    for(let i=0;i<N;i++){
+      for(let j=0;j<N;j++){
+        const c = stones[i][j];
+        if(c === '.') continue;
+        const x = margin + i*step;
+        const y = margin + j*step;
+        // Shadow
+        ctx.beginPath();
+        ctx.arc(x + stoneR*0.10, y + stoneR*0.14, stoneR, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(0,0,0,.28)';
+        ctx.fill();
+        // Stone
+        const g = ctx.createRadialGradient(x - stoneR*0.3, y - stoneR*0.3, stoneR*0.1, x, y, stoneR);
+        if(c === 'B'){
+          g.addColorStop(0, '#5a5a5a'); g.addColorStop(0.6, '#1a1a1a'); g.addColorStop(1, '#000');
+        } else {
+          g.addColorStop(0, '#fff'); g.addColorStop(0.6, '#e8e8e8'); g.addColorStop(1, '#bababa');
+        }
+        ctx.beginPath(); ctx.arc(x, y, stoneR, 0, Math.PI*2);
+        ctx.fillStyle = g; ctx.fill();
+        ctx.strokeStyle = c==='B' ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.15)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    // Move numbers (toggleable). Render the most recent ~30 moves' numbers,
+    // skipping any that have been captured.
+    if(showNums && moves && moves.length){
+      ctx.font = 'bold ' + Math.max(8, Math.round(step*0.42)) + 'px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const start = Math.max(0, moves.length - 30);
+      for(let k=start; k<moves.length; k++){
+        const m = moves[k];
+        if(!stones[m.x] || stones[m.x][m.y] !== m.c) continue;
+        const x = margin + m.x*step;
+        const y = margin + m.y*step;
+        ctx.fillStyle = m.c === 'B' ? '#fff' : '#111';
+        ctx.fillText(String(k+1), x, y);
+      }
+    }
+    // Last move marker
+    const last = (override && override.lastMove) || (S.moves.length ? S.moves[S.moves.length-1] : null);
+    if(last && stones[last.x] && stones[last.x][last.y] === last.c){
+      const x = margin + last.x*step;
+      const y = margin + last.y*step;
+      ctx.beginPath(); ctx.arc(x, y, step*0.18, 0, Math.PI*2);
+      ctx.strokeStyle = last.c==='B' ? '#ff5e3a' : '#d2421f';
+      ctx.lineWidth = Math.max(2, step*0.06);
+      ctx.stroke();
+    }
+  }
+}
+
+// ============================================================
+// BOARD MANUAL EDIT (broadcaster taps recognized board to fix)
+// ============================================================
+function attachBoardEdit(){
+  const cnv = $('boardB');
+  cnv.addEventListener('click', (e)=>{
+    if(!S.committed) return;
+    const r = cnv.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (cnv.width / r.width);
+    const py = (e.clientY - r.top) * (cnv.height / r.height);
+    const N = S.size;
+    const W = cnv.width;
+    const margin = W * 0.04;
+    const inner = W - margin*2;
+    const step = inner / (N-1);
+    const i = Math.round((px - margin) / step);
+    const j = Math.round((py - margin) / step);
+    if(i<0||i>=N||j<0||j>=N) return;
+    const cur = S.committed[i][j];
+    const nxt = cur === '.' ? S.turn : (cur === 'B' ? 'W' : '.');
+    S.committed[i][j] = nxt;
+    // Also adjust history so detection won't immediately overwrite the manual fix
+    S.history[i][j] = Array.from({length: S.histDepth}, ()=>nxt);
+    S.prevCommitted[i][j] = nxt;
+    drawBoardCanvas('boardB');
+    drawOverlay();
+    broadcastState();
+  });
+}
+
+// ============================================================
+// SGF EXPORT
+// ============================================================
+function sgfCoord(x, y){
+  // SGF columns/rows: 0..N-1 → 'a'..  (no skip)
+  return String.fromCharCode(97 + x) + String.fromCharCode(97 + y);
+}
+function buildSGFFrom(N, initialBoard, currentBoard, moves, turn){
+  const date = new Date().toISOString().slice(0,10);
+  let body = `(;FF[4]GM[1]CA[UTF-8]SZ[${N}]DT[${date}]AP[GoBoardCameraStream:1.0]`;
+  const initial = initialBoard || currentBoard;
+  if(initial){
+    const ab = [], aw = [];
+    for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+      if(initial[i][j] === 'B') ab.push(sgfCoord(i,j));
+      else if(initial[i][j] === 'W') aw.push(sgfCoord(i,j));
+    }
+    if(ab.length) body += '\nAB' + ab.map(c=>'['+c+']').join('');
+    if(aw.length) body += '\nAW' + aw.map(c=>'['+c+']').join('');
+  }
+  if(moves && moves.length){
+    body += '\n';
+    for(const m of moves) body += `;${m.c}[${sgfCoord(m.x, m.y)}]`;
+  } else if(turn){
+    body += `\nPL[${turn}]`;
+  }
+  body += ')\n';
+  return body;
+}
+function downloadSGF(text, filenamePrefix){
+  const date = new Date().toISOString().slice(0,10);
+  const blob = new Blob([text], {type:'application/x-go-sgf'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (filenamePrefix||'goboard') + '_' + date + '_' + new Date().toTimeString().slice(0,5).replace(':','') + '.sgf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function generateSGF(){
+  const N = S.size;
+  const initial = (S.trackMoves && S.movesInitialized && S.initialPosition) ? S.initialPosition : null;
+  const moves = S.trackMoves ? S.moves : null;
+  const text = buildSGFFrom(N, initial, S.committed, moves, S.turn);
+  downloadSGF(text, 'goboard');
+  toast('SGF をダウンロードしました');
+}
+
+// ============================================================
+// PEERJS BROADCASTING
+// ============================================================
+function setLiveBadge(state){
+  const b = $('liveBadge');
+  b.classList.remove('live','connecting');
+  if(state === 'live'){ b.classList.add('live'); b.textContent = '配信中 LIVE'; }
+  else if(state === 'connecting'){ b.classList.add('connecting'); b.textContent = '接続中'; }
+  else { b.classList.add('connecting'); b.textContent = state; }
+}
+function startPeerHost(forceNewId){
+  if(typeof Peer === 'undefined'){
+    setLiveBadge('PeerJS未読込');
+    $('roomId').textContent = '配信不可';
+    $('viewUrl').textContent = 'ネット接続を確認してください';
+    toast('PeerJS が読み込めませんでした。ネット接続を確認してください', true);
+    return;
+  }
+  if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
+  let stored = null;
+  try{ stored = localStorage.getItem('goboard.peerShortId'); }catch(e){}
+  let shortId;
+  if(!forceNewId && stored && /^[A-Z0-9]{6}$/.test(stored)){
+    shortId = stored;
+  } else {
+    shortId = makeShortId();
+    try{ localStorage.setItem('goboard.peerShortId', shortId); }catch(e){}
+  }
+  const id = PEER_PREFIX + shortId;
+  setLiveBadge('connecting');
+  S.peer = new Peer(id, { debug: 1 });
+  S.peer.on('open', (pid)=>{
+    S.peerId = pid;
+    const shortId = pid.replace(PEER_PREFIX, '');
+    $('roomId').textContent = shortId;
+    const url = location.origin + location.pathname + '?view=' + shortId;
+    $('viewUrl').textContent = url;
+    setLiveBadge('live');
+    toast('部屋ID: ' + shortId);
+  });
+  S.peer.on('connection', (conn)=>{
+    conn.on('open', ()=>{
+      S.conns.push(conn);
+      $('viewerCount').textContent = S.conns.length;
+      // Send initial snapshot
+      sendStateTo(conn);
+    });
+    conn.on('close', ()=>{
+      S.conns = S.conns.filter(c=>c!==conn);
+      $('viewerCount').textContent = S.conns.length;
+    });
+    conn.on('error', ()=>{
+      S.conns = S.conns.filter(c=>c!==conn);
+      $('viewerCount').textContent = S.conns.length;
+    });
+  });
+  S.peer.on('disconnected', ()=>{
+    setLiveBadge('再接続中');
+    setTimeout(()=>{ try{ S.peer && S.peer.reconnect(); }catch(e){} }, 1500);
+  });
+  S.peer.on('error', (err)=>{
+    console.warn('peer error', err);
+    if(err && err.type === 'unavailable-id'){
+      // ID collision: drop the stored ID and try a new random one once.
+      try{ localStorage.removeItem('goboard.peerShortId'); }catch(e){}
+      setTimeout(()=>startPeerHost(true), 200);
+    } else {
+      setLiveBadge('エラー');
+      toast('接続エラー: ' + (err.type || err.message || ''), true);
+    }
+  });
+}
+function snapshotState(){
+  return {
+    type: 'state',
+    size: S.size,
+    committed: S.committed,
+    moves: S.trackMoves ? S.moves : [],
+    initialPosition: (S.trackMoves && S.movesInitialized) ? S.initialPosition : null,
+    turn: S.turn,
+    ts: Date.now(),
+  };
+}
+function sendStateTo(conn){
+  try{ conn.send(snapshotState()); }catch(e){ console.warn(e); }
+}
+let _bcLastSent = 0;
+function broadcastState(){
+  if(!S.conns.length) return;
+  const now = Date.now();
+  if(now - _bcLastSent < 80) return; // throttle
+  _bcLastSent = now;
+  const snap = snapshotState();
+  for(const c of S.conns){
+    try{ c.send(snap); }catch(e){}
+  }
+}
+
+// ============================================================
+// PEERJS VIEWING
+// ============================================================
+function startPeerViewer(shortId){
+  $('vRoomId').textContent = shortId;
+  if(typeof Peer === 'undefined'){
+    setVStatus('PeerJS が読み込めません。ネット接続を確認してください', 'disconnected');
+    return;
+  }
+  setVStatus('接続中...', 'connecting');
+  if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
+  S.peer = new Peer({ debug: 1 });
+  S.peer.on('open', ()=>{
+    connectToHost(shortId);
+  });
+  S.peer.on('error', (err)=>{
+    console.warn('viewer peer error', err);
+    setVStatus('接続エラー: ' + (err.type || err.message || ''), 'disconnected');
+    scheduleReconnect(shortId);
+  });
+  S.peer.on('disconnected', ()=>{
+    setVStatus('切断 - 再接続中...', 'disconnected');
+    try{ S.peer.reconnect(); }catch(e){}
+  });
+}
+function connectToHost(shortId){
+  if(!S.peer) return;
+  const targetId = PEER_PREFIX + shortId;
+  setVStatus('接続中...', 'connecting');
+  const conn = S.peer.connect(targetId, { reliable: true });
+  S.conn = conn;
+  conn.on('open', ()=>{
+    setVStatus('接続済み', 'connected');
+  });
+  conn.on('data', (data)=>{
+    if(data && data.type === 'state'){
+      S.vLatestState = data;
+      drawBoardCanvas('boardV', {
+        size: data.size,
+        committed: data.committed,
+        lastMove: data.moves && data.moves.length ? data.moves[data.moves.length-1] : null,
+        moves: data.moves,
+      });
+      let bc=0, wc=0;
+      for(const row of data.committed) for(const c of row){
+        if(c==='B') bc++; else if(c==='W') wc++;
+      }
+      $('vBCount').textContent = bc;
+      $('vWCount').textContent = wc;
+      const mvCount = (data.moves||[]).length;
+      if(mvCount > S.vPrevMoveCount && S.vPrevMoveCount > 0){
+        playStoneClick();
+      }
+      S.vPrevMoveCount = mvCount;
+      $('vMoveCount').textContent = mvCount;
+      $('vTurn').innerHTML = '手番: <b>' + (data.turn==='B'?'黒●':'白○') + '</b>';
+      const lat = data.ts ? Math.max(0, Date.now() - data.ts) : null;
+      const latStr = lat !== null ? '  遅延 ' + lat + 'ms' : '';
+      setVStatus('受信中  ' + new Date().toLocaleTimeString() + latStr, 'connected');
+    }
+  });
+  conn.on('close', ()=>{
+    setVStatus('切断されました - 再接続します...', 'disconnected');
+    scheduleReconnect(shortId);
+  });
+  conn.on('error', (e)=>{
+    setVStatus('接続エラー - 再接続します...', 'disconnected');
+    scheduleReconnect(shortId);
+  });
+}
+function scheduleReconnect(shortId){
+  clearTimeout(S.reconnectTimer);
+  S.reconnectTimer = setTimeout(()=>{
+    if(S.mode === 'view') startPeerViewer(shortId);
+  }, 3000);
+}
+function setVStatus(text, cls){
+  const el = $('vStatus');
+  el.textContent = text;
+  el.classList.remove('connected','disconnected');
+  if(cls) el.classList.add(cls);
+}
+
+// ============================================================
+// MAIN LOOPS
+// ============================================================
+function startProcessingLoop(){
+  stopProcessingLoop();
+  const tick = ()=>{
+    if(document.hidden){
+      // Skip while tab is in background to save battery/CPU
+      S.loopHandle = setTimeout(tick, 500);
+      return;
+    }
+    const interval = 1000 / Math.max(1, S.targetFps);
+    const t0 = performance.now();
+    try{ detectFrame(); } catch(e){ console.error(e); }
+    const t1 = performance.now();
+    const inst = 1000 / Math.max(16, t1 - t0);
+    S.procFpsMA = S.procFpsMA ? S.procFpsMA*0.85 + inst*0.15 : inst;
+    $('procFps').textContent = Math.min(S.targetFps, S.procFpsMA).toFixed(1);
+    const wait = Math.max(0, interval - (t1 - t0));
+    S.loopHandle = setTimeout(tick, wait);
+  };
+  tick();
+}
+function stopProcessingLoop(){
+  if(S.loopHandle){ clearTimeout(S.loopHandle); S.loopHandle = null; }
+}
+
+// ============================================================
+// MODE NAVIGATION
+// ============================================================
+async function enterBroadcast(){
+  if(!checkSecure()) return;
+  showScreen('broadcastScreen');
+  ensureCorners();
+  initDetectionState();
+  S.moves = [];
+  S.movesInitialized = false;
+  S.initialPosition = null;
+  S.suspiciousFrames = 0;
+  $('moveCount').textContent = 0;
+  // Sync UI to settings
+  $('blackTh').value = S.blackTh; $('blackVal').textContent = S.blackTh;
+  $('whiteTh').value = S.whiteTh; $('whiteVal').textContent = S.whiteTh;
+  $('histDepth').value = S.histDepth; $('histVal').textContent = S.histDepth;
+  $('targetFps').value = S.targetFps; $('fpsVal').textContent = S.targetFps;
+  $('dbgOverlay').checked = S.dbgOverlay;
+  $('autoTurn').checked = S.autoTurn;
+  $('trackMoves').checked = S.trackMoves;
+  $('soundOn').checked = S.soundOn;
+  $('showMoveNum').checked = S.showMoveNum;
+  setActiveSize(S.size);
+  drawBoardCanvas('boardB');
+  await listCameras();
+  try{
+    await startCamera();
+    resizeOverlay();
+    drawOverlay();
+    startProcessingLoop();
+    startPeerHost();
+    if(!localStorage.getItem('goboard.tutDone')){
+      setTimeout(()=>toast('① 黄色いハンドルを碁盤の四隅(交点)に合わせる ② 設定でしきい値を調整'), 600);
+      setTimeout(()=>toast('③ 部屋IDかURLを共有 ④ 観戦側はURLを開くだけ'), 4200);
+      localStorage.setItem('goboard.tutDone', '1');
+    }
+  } catch(e){
+    console.error(e);
+    $('camArea').classList.add('noCam');
+    const hint = (e && e.name === 'NotAllowedError') ? 'カメラ許可が拒否されました。ブラウザ設定で許可してください。'
+      : (e && e.name === 'NotFoundError') ? 'カメラデバイスが見つかりません。'
+      : 'カメラを開けません: ' + (e.message||e.name);
+    $('camHintMsg').textContent = hint;
+    toast(hint, true);
+  }
+}
+async function retryCamera(){
+  try{
+    await startCamera();
+    $('camArea').classList.remove('noCam');
+    resizeOverlay();
+    drawOverlay();
+    if(!S.loopHandle) startProcessingLoop();
+    toast('カメラを開きました');
+  }catch(e){
+    const hint = (e && e.name === 'NotAllowedError') ? 'カメラ許可が拒否されています。ブラウザ設定で許可してください。'
+      : (e && e.name === 'NotFoundError') ? 'カメラデバイスが見つかりません。'
+      : 'カメラを開けません: ' + (e.message||e.name);
+    $('camHintMsg').textContent = hint;
+    toast(hint, true);
+  }
+}
+function exitBroadcast(){
+  stopProcessingLoop();
+  stopCamera();
+  if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
+  S.conns = [];
+  showScreen('modeSelect');
+}
+function enterView(shortId){
+  showScreen('viewScreen');
+  startPeerViewer(shortId);
+  drawBoardCanvas('boardV', { size: S.size, committed: null });
+}
+function exitView(){
+  if(S.conn){ try{ S.conn.close(); }catch(e){} S.conn = null; }
+  if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
+  clearTimeout(S.reconnectTimer);
+  showScreen('modeSelect');
+}
+function setActiveSize(n){
+  document.querySelectorAll('.sizeBtns button').forEach(b=>{
+    b.classList.toggle('active', +b.dataset.size === n);
+  });
+}
+function changeSize(n){
+  if(n === S.size) return;
+  S.size = n;
+  initDetectionState();
+  S.moves = [];
+  S.movesInitialized = false;
+  S.initialPosition = null;
+  S.suspiciousFrames = 0;
+  $('moveCount').textContent = 0;
+  setActiveSize(n);
+  drawBoardCanvas('boardB');
+  drawOverlay();
+  saveSettings();
+  toast(n + '路盤に変更しました');
+}
+
+// ============================================================
+// SECURITY / ENV CHECKS
+// ============================================================
+function checkSecure(){
+  const ok = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+  if(!ok){
+    const err = $('modeErr');
+    err.textContent = 'カメラ利用には HTTPS が必要です。GitHub Pages や ngrok などのHTTPS経由で開いてください。';
+    err.classList.add('show');
+    return false;
+  }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    const err = $('modeErr');
+    err.textContent = 'このブラウザはカメラAPIに対応していません。';
+    err.classList.add('show');
+    return false;
+  }
+  return true;
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init(){
+  loadSettings();
+  S.procCanvas = document.createElement('canvas');
+  S.procCanvas.width = PROC_W; S.procCanvas.height = PROC_W*0.75;
+  S.procCtx = S.procCanvas.getContext('2d', { willReadFrequently: true });
+
+  // Mode select buttons
+  $('btnBroadcast').addEventListener('click', enterBroadcast);
+  $('btnView').addEventListener('click', ()=>{
+    const v = $('joinId').value.trim().toUpperCase();
+    if(!v){ $('joinId').focus(); toast('部屋IDを入力してください', true); return; }
+    enterView(v);
+  });
+  $('btnJoin').addEventListener('click', ()=>{
+    const v = $('joinId').value.trim().toUpperCase();
+    if(!v){ toast('部屋IDを入力してください', true); return; }
+    enterView(v);
+  });
+  $('joinId').addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){
+      const v = $('joinId').value.trim().toUpperCase();
+      if(v) enterView(v);
+    }
+  });
+
+  // Broadcaster controls
+  $('bExit').addEventListener('click', exitBroadcast);
+  $('cameraSelect').addEventListener('change', async ()=>{
+    try{ await startCamera(); resizeOverlay(); drawOverlay(); }
+    catch(e){ toast('カメラ切替失敗: '+(e.message||e.name), true); }
+  });
+  document.querySelectorAll('.sizeBtns button').forEach(b=>{
+    b.addEventListener('click', ()=>changeSize(+b.dataset.size));
+  });
+  $('blackTh').addEventListener('input', e=>{ S.blackTh = +e.target.value; $('blackVal').textContent = S.blackTh; saveSettings(); });
+  $('whiteTh').addEventListener('input', e=>{ S.whiteTh = +e.target.value; $('whiteVal').textContent = S.whiteTh; saveSettings(); });
+  $('histDepth').addEventListener('input', e=>{ S.histDepth = +e.target.value; $('histVal').textContent = S.histDepth; saveSettings(); });
+  $('targetFps').addEventListener('input', e=>{ S.targetFps = +e.target.value; $('fpsVal').textContent = S.targetFps; saveSettings(); });
+  $('dbgOverlay').addEventListener('change', e=>{ S.dbgOverlay = e.target.checked; saveSettings(); drawOverlay(); });
+  $('autoTurn').addEventListener('change', e=>{ S.autoTurn = e.target.checked; saveSettings(); });
+  $('trackMoves').addEventListener('change', e=>{ S.trackMoves = e.target.checked; saveSettings(); });
+  $('soundOn').addEventListener('change', e=>{
+    S.soundOn = e.target.checked;
+    saveSettings();
+    if(S.soundOn) playStoneClick();
+  });
+  $('showMoveNum').addEventListener('change', e=>{ S.showMoveNum = e.target.checked; saveSettings(); drawBoardCanvas('boardB'); });
+  $('btnReset').addEventListener('click', ()=>{
+    S.corners = defaultCorners();
+    initDetectionState();
+    S.movesInitialized = false;
+    S.initialPosition = null;
+    saveSettings();
+    drawOverlay();
+    toast('隅をリセットしました - ドラッグで合わせて下さい');
+  });
+  $('btnRotate').addEventListener('click', ()=>{
+    if(!S.corners) return;
+    // Rotate corner labels 90° CW: TL←BL, TR←TL, BR←TR, BL←BR
+    S.corners = [S.corners[3], S.corners[0], S.corners[1], S.corners[2]];
+    initDetectionState();
+    S.movesInitialized = false;
+    S.initialPosition = null;
+    saveSettings();
+    drawOverlay();
+    toast('盤を90°回転しました');
+  });
+  $('btnClearMoves').addEventListener('click', ()=>{
+    S.moves = [];
+    $('moveCount').textContent = 0;
+    S.movesInitialized = false;
+    S.initialPosition = null;
+    S.suspiciousFrames = 0;
+    toast('履歴をクリア。次の安定検出を初期局面とします');
+  });
+  $('btnSetInitial').addEventListener('click', ()=>{
+    if(!S.committed){ toast('まだ盤面が認識されていません', true); return; }
+    S.initialPosition = snapshotCommitted();
+    syncPrevToCommitted();
+    S.movesInitialized = true;
+    S.moves = [];
+    S.suspiciousFrames = 0;
+    $('moveCount').textContent = 0;
+    toast('現在の局面を初手前として設定');
+  });
+  $('btnRecalib').addEventListener('click', ()=>{
+    initDetectionState();
+    S.movesInitialized = false;
+    S.initialPosition = null;
+    S.suspiciousFrames = 0;
+    toast('検出履歴をクリアしました');
+  });
+  $('btnSGF').addEventListener('click', generateSGF);
+  $('btnPng').addEventListener('click', ()=>{
+    const cnv = $('boardB');
+    cnv.toBlob((blob)=>{
+      if(!blob){ toast('PNG生成に失敗', true); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'');
+      a.href = url; a.download = 'goboard_' + stamp + '.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      toast('PNGを保存しました');
+    }, 'image/png');
+  });
+  $('btnUndo').addEventListener('click', ()=>{
+    if(!S.moves.length){ toast('取消す手がありません', true); return; }
+    const m = S.moves.pop();
+    if(S.committed[m.x] && S.committed[m.x][m.y] === m.c){
+      S.committed[m.x][m.y] = '.';
+      S.history[m.x][m.y] = Array.from({length:S.histDepth}, ()=>'.');
+      S.prevCommitted[m.x][m.y] = '.';
+    }
+    $('moveCount').textContent = S.moves.length;
+    drawBoardCanvas('boardB');
+    drawOverlay();
+    broadcastState();
+    toast('最終手を取消');
+  });
+  $('copyId').addEventListener('click', async ()=>{
+    const v = $('roomId').textContent;
+    if(!v || v === '準備中...') return;
+    try{ await navigator.clipboard.writeText(v); toast('部屋IDをコピー'); }
+    catch(e){ toast('コピー失敗', true); }
+  });
+  $('newId').addEventListener('click', ()=>{
+    try{ localStorage.removeItem('goboard.peerShortId'); }catch(e){}
+    startPeerHost(true);
+    toast('新しい部屋IDを発行します...');
+  });
+  $('copyUrl').addEventListener('click', async ()=>{
+    const v = $('viewUrl').textContent;
+    if(!v || v === '--') return;
+    try{ await navigator.clipboard.writeText(v); toast('URLをコピー'); }
+    catch(e){ toast('コピー失敗', true); }
+  });
+
+  // Camera retry
+  $('camRetry').addEventListener('click', retryCamera);
+
+  // Viewer controls
+  $('vExit').addEventListener('click', exitView);
+  function syncViewerToggleLabels(){
+    $('vSoundBtn').textContent = (S.soundOn ? '🔔 音オン' : '🔇 音オフ');
+    $('vNumBtn').textContent = '手数表示 ' + (S.showMoveNum ? 'オン' : 'オフ');
+  }
+  $('vSoundBtn').addEventListener('click', ()=>{
+    S.soundOn = !S.soundOn;
+    saveSettings();
+    syncViewerToggleLabels();
+    if(S.soundOn) playStoneClick();
+  });
+  $('vNumBtn').addEventListener('click', ()=>{
+    S.showMoveNum = !S.showMoveNum;
+    saveSettings();
+    syncViewerToggleLabels();
+    if(S.vLatestState){
+      drawBoardCanvas('boardV', {
+        size: S.vLatestState.size,
+        committed: S.vLatestState.committed,
+        lastMove: S.vLatestState.moves && S.vLatestState.moves.length ? S.vLatestState.moves[S.vLatestState.moves.length-1] : null,
+        moves: S.vLatestState.moves,
+      });
+    }
+  });
+  $('vSgfBtn').addEventListener('click', ()=>{
+    if(!S.vLatestState){ toast('盤面データがまだ届いていません', true); return; }
+    const d = S.vLatestState;
+    const text = buildSGFFrom(d.size, d.initialPosition || null, d.committed, d.moves, d.turn);
+    downloadSGF(text, 'goboard_view');
+    toast('SGFをダウンロード');
+  });
+  syncViewerToggleLabels();
+
+  // Overlay input + board edit
+  attachOverlayInput();
+  attachBoardEdit();
+
+  // Render loop for overlay (decoupled from detection so handles look smooth)
+  function ovLoop(){
+    if(S.mode === 'broadcast') drawOverlay();
+    requestAnimationFrame(ovLoop);
+  }
+  requestAnimationFrame(ovLoop);
+
+  // Auto-enter viewer if URL contains ?view=
+  const params = new URLSearchParams(location.search);
+  const v = params.get('view');
+  if(v){
+    enterView(v.trim().toUpperCase());
+  }
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
