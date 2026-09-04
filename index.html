@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="theme-color" content="#1a1a1a">
 <title>碁盤カメラ中継</title>
 <style>
@@ -85,6 +85,9 @@ a{color:#7cb7ff}
 .sRow input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#f4d03f;cursor:pointer;border:none}
 .sRow .togRow{display:flex;align-items:center;gap:8px;font-size:.78rem}
 .sRow .togRow input{width:18px;height:18px;accent-color:#f4d03f}
+.miniBtns{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:6px}
+.miniBtns button{padding:9px 6px;border-radius:7px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#fff;font-size:.78rem;font-weight:700}
+.miniBtns button.active{border-color:#f4d03f;background:rgba(244,208,63,.18);color:#f4d03f}
 
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0}
 .actions button{padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff;font-size:.82rem;font-weight:700}
@@ -140,7 +143,7 @@ a{color:#7cb7ff}
   <button class="modeBtn" id="btnBroadcast"><span class="icon">📹</span><span>配信する（カメラを使う）</span></button>
   <button class="modeBtn" id="btnView"><span class="icon">👁</span><span>観戦する</span></button>
   <div class="joinRow">
-    <input id="joinId" placeholder="部屋IDを入力" maxlength="16" autocomplete="off">
+    <input id="joinId" placeholder="6文字の部屋ID" maxlength="6" autocomplete="off" inputmode="text">
     <button id="btnJoin">参加</button>
   </div>
   <div class="info">配信側が表示する部屋IDを入力するか、配信側が共有したURLを開いてください。</div>
@@ -216,7 +219,15 @@ a{color:#7cb7ff}
           <div class="togRow"><input type="checkbox" id="dbgOverlay"> <label for="dbgOverlay">認識結果をカメラに重ねて表示</label></div>
         </div>
         <div class="sRow">
-          <div class="togRow"><input type="checkbox" id="autoTurn" checked> <label for="autoTurn">手番を石数から自動推定</label></div>
+          <div class="togRow"><input type="checkbox" id="autoTurn" checked> <label for="autoTurn">着手・パス後に手番を自動で進める</label></div>
+        </div>
+        <div class="sRow">
+          <div class="sHead">手番操作 <span>置き碁・パス対応</span></div>
+          <div class="miniBtns">
+            <button id="turnB" type="button">黒番</button>
+            <button id="turnW" type="button">白番</button>
+            <button id="btnPass" type="button">パスを記録</button>
+          </div>
         </div>
         <div class="sRow">
           <div class="togRow"><input type="checkbox" id="trackMoves" checked> <label for="trackMoves">着手履歴を記録（SGFに含める）</label></div>
@@ -244,7 +255,7 @@ a{color:#7cb7ff}
       <button id="btnClearMoves">履歴クリア</button>
       <button id="btnRecalib">再キャリブレ</button>
       <button id="btnPng">盤面をPNG保存</button>
-      <button id="btnUndo">最終手を取消</button>
+      <button id="btnUndo">最終手・パスを取消</button>
       <button class="primary full" id="btnSGF">SGFをダウンロード</button>
     </div>
   </div>
@@ -295,6 +306,7 @@ const STAR_POINTS = {
 const PROC_W = 640;          // downscaled processing width
 const PEER_PREFIX = 'goboard-';
 const STORAGE_KEY = 'goboard.settings.v1';
+const GAME_KEY = 'goboard.game.v2';
 
 // ============================================================
 // STATE
@@ -320,6 +332,8 @@ const S = {
   showMoveNum: false,
   // Move history
   moves: [],               // [{c:'B'|'W', x:i, y:j}]
+  corrections: [],         // SGF setup edits: [{afterMove,x,y,value}]
+  undoStack: [],           // snapshots taken before moves and passes
   initialPosition: null,   // committed snapshot at the moment tracking started
   movesInitialized: false,
   suspiciousFrames: 0,
@@ -345,6 +359,9 @@ const S = {
   conns: [],               // broadcaster: list of viewer DataConnections
   conn: null,              // viewer: connection to broadcaster
   reconnectTimer: null,
+  revision: 0,
+  lastSentRevision: -1,
+  wakeLock: null,
   // UI
   draggingHandle: -1,
   // Offscreen
@@ -411,11 +428,92 @@ function saveSettings(){
     }));
   }catch(e){}
 }
+function cloneBoard(board){
+  return board ? board.map(row=>row.slice()) : null;
+}
+function isValidBoard(board, N){
+  return Array.isArray(board) && board.length === N && board.every(row=>
+    Array.isArray(row) && row.length === N && row.every(c=>c==='B'||c==='W'||c==='.')
+  );
+}
+function isValidMove(m, N){
+  return m && (m.c==='B'||m.c==='W') && (m.pass === true ||
+    (Number.isInteger(m.x)&&Number.isInteger(m.y)&&m.x>=0&&m.y>=0&&m.x<N&&m.y<N));
+}
+function saveGame(){
+  if(!S.committed) return;
+  try{
+    localStorage.setItem(GAME_KEY, JSON.stringify({
+      size:S.size, committed:S.committed, moves:S.moves,
+      corrections:S.corrections, undoStack:S.undoStack.slice(-60),
+      initialPosition:S.initialPosition, movesInitialized:S.movesInitialized,
+      turn:S.turn, savedAt:Date.now(),
+    }));
+  }catch(e){}
+}
+function restoreGame(){
+  try{
+    const g = JSON.parse(localStorage.getItem(GAME_KEY) || 'null');
+    if(!g || ![9,13,19].includes(g.size) || !isValidBoard(g.committed,g.size)) return false;
+    const moves = Array.isArray(g.moves) ? g.moves.filter(m=>isValidMove(m,g.size)).slice(0,2000) : [];
+    const corrections = Array.isArray(g.corrections) ? g.corrections.filter(c=>
+      Number.isInteger(c.afterMove)&&c.afterMove>=0&&c.afterMove<=moves.length&&
+      Number.isInteger(c.x)&&Number.isInteger(c.y)&&c.x>=0&&c.y>=0&&c.x<g.size&&c.y<g.size&&
+      (c.value==='B'||c.value==='W'||c.value==='.')
+    ).slice(0,2000) : [];
+    S.size = g.size;
+    initDetectionState(g.committed);
+    S.moves = moves;
+    S.corrections = corrections;
+    S.initialPosition = isValidBoard(g.initialPosition,g.size) ? cloneBoard(g.initialPosition) : cloneBoard(g.committed);
+    S.movesInitialized = !!g.movesInitialized;
+    S.turn = g.turn === 'W' ? 'W' : 'B';
+    S.undoStack = Array.isArray(g.undoStack) ? g.undoStack.filter(s=>
+      s && isValidBoard(s.board,g.size) && Number.isInteger(s.movesLength)
+    ).slice(-60) : [];
+    return true;
+  }catch(e){ return false; }
+}
+function pushUndoSnapshot(){
+  S.undoStack.push({
+    board:cloneBoard(S.prevCommitted || S.committed),
+    movesLength:S.moves.length,
+    correctionsLength:S.corrections.length,
+    turn:S.turn,
+  });
+  if(S.undoStack.length > 60) S.undoStack.shift();
+}
+function updateTurnUI(){
+  $('turnInd').innerHTML = '手番: <b>' + (S.turn==='B' ? '黒●' : '白○') + '</b>';
+  $('turnB').classList.toggle('active', S.turn==='B');
+  $('turnW').classList.toggle('active', S.turn==='W');
+}
+function setTurn(c, notify){
+  S.turn = c === 'W' ? 'W' : 'B';
+  S.revision++;
+  updateTurnUI();
+  saveGame();
+  broadcastState(true);
+  if(notify) toast((S.turn==='B'?'黒':'白') + '番に設定しました');
+}
+function clearTracking(){
+  S.moves = [];
+  S.corrections = [];
+  S.undoStack = [];
+  S.movesInitialized = false;
+  S.initialPosition = null;
+  S.suspiciousFrames = 0;
+  $('moveCount').textContent = 0;
+}
 function makeShortId(){
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   let s = '';
   for(let i=0;i<6;i++) s += chars[(Math.random()*chars.length)|0];
   return s;
+}
+function normalizeRoomId(value){
+  const id = String(value||'').trim().toUpperCase();
+  return /^[A-HJ-NP-Z2-9]{6}$/.test(id) ? id : null;
 }
 
 let _audioCtx = null;
@@ -524,6 +622,16 @@ function stopCamera(){
     S.stream = null;
   }
   if(S.videoEl) S.videoEl.srcObject = null;
+}
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator) || document.hidden || S.wakeLock) return;
+  try{
+    S.wakeLock = await navigator.wakeLock.request('screen');
+    S.wakeLock.addEventListener('release', ()=>{ S.wakeLock = null; });
+  }catch(e){}
+}
+function releaseWakeLock(){
+  if(S.wakeLock){ try{ S.wakeLock.release(); }catch(e){} S.wakeLock=null; }
 }
 
 // ============================================================
@@ -714,11 +822,16 @@ function attachOverlayInput(){
 // ============================================================
 // DETECTION
 // ============================================================
-function initDetectionState(){
+function initDetectionState(seedBoard){
   const N = S.size;
   S.history = Array.from({length:N}, ()=>Array.from({length:N}, ()=>[]));
-  S.committed = Array.from({length:N}, ()=>Array.from({length:N}, ()=>'.'));
-  S.prevCommitted = Array.from({length:N}, ()=>Array.from({length:N}, ()=>'.'));
+  S.committed = isValidBoard(seedBoard,N) ? cloneBoard(seedBoard) : Array.from({length:N}, ()=>Array.from({length:N}, ()=>'.'));
+  S.prevCommitted = cloneBoard(S.committed);
+  if(seedBoard){
+    for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+      S.history[i][j] = Array.from({length:S.histDepth}, ()=>S.committed[i][j]);
+    }
+  }
   S.lastAcceptedClass = null;
   S.consecutiveRejects = 0;
 }
@@ -730,6 +843,7 @@ function pushHistory(i, j, val){
 function commitFromHistory(){
   const N = S.size, K = S.histDepth;
   const minVotes = Math.max(2, Math.ceil(K * 0.7));
+  let changed = false;
   for(let i=0;i<N;i++){
     for(let j=0;j<N;j++){
       const buf = S.history[i][j];
@@ -742,10 +856,11 @@ function commitFromHistory(){
       const top = Math.max(cB, cW, cE);
       if(top >= Math.min(minVotes, buf.length)){
         const newVal = (top===cB)?'B':(top===cW)?'W':'.';
-        S.committed[i][j] = newVal;
+        if(S.committed[i][j] !== newVal){ S.committed[i][j] = newVal; changed = true; }
       }
     }
   }
+  return changed;
 }
 function detectFrame(){
   if(!S.videoEl || !S.videoEl.videoWidth) return;
@@ -877,9 +992,9 @@ function detectFrame(){
       for(let i=0;i<N;i++) for(let j=0;j<N;j++) pushHistory(i, j, cls[i][j]);
     }
   }
-  commitFromHistory();
+  const boardChanged = commitFromHistory();
   // Move tracking
-  if(S.trackMoves) trackMoves();
+  const moveChanged = S.trackMoves ? trackMoves() : false;
   // Counts
   let bc=0, wc=0;
   for(let i=0;i<N;i++) for(let j=0;j<N;j++){
@@ -888,19 +1003,20 @@ function detectFrame(){
   }
   $('bCount').textContent = bc;
   $('wCount').textContent = wc;
-  if(S.autoTurn){
-    S.turn = (bc <= wc) ? 'B' : 'W';
-  }
-  $('turnInd').innerHTML = '手番: <b>' + (S.turn==='B' ? '黒●' : '白○') + '</b>';
+  updateTurnUI();
   // Stability indicator
   let sCol = '#7cffa7', sLbl = '安定';
   if(S.consecutiveRejects > 10){ sCol = '#ff6b6b'; sLbl = '不安定'; }
   else if(S.consecutiveRejects > 3 || S.suspiciousFrames > 5){ sCol = '#f4d03f'; sLbl = 'やや不安定'; }
   $('stableDot').style.background = sCol;
   $('stableLbl').textContent = sLbl;
-  drawBoardCanvas('boardB');
-  drawOverlay();
-  broadcastState();
+  if(boardChanged || moveChanged){
+    S.revision++;
+    drawBoardCanvas('boardB');
+    drawOverlay();
+    saveGame();
+    broadcastState();
+  }
 }
 function snapshotCommitted(){
   const N = S.size;
@@ -923,11 +1039,12 @@ function trackMoves(){
     for(let i=0;i<N && bufFull;i++) for(let j=0;j<N;j++){
       if(S.history[i][j].length < S.histDepth){ bufFull = false; break; }
     }
-    if(!bufFull) return;
+    if(!bufFull) return false;
     syncPrevToCommitted();
     S.initialPosition = snapshotCommitted();
     S.movesInitialized = true;
-    return;
+    saveGame();
+    return true;
   }
   // Diff prev → current
   const newOnes = [];
@@ -944,7 +1061,7 @@ function trackMoves(){
   if(newOnes.length === 0){
     syncPrevToCommitted();
     S.suspiciousFrames = 0;
-    return;
+    return false;
   }
   if(bDelta > 1 || wDelta > 1){
     // Likely recognition flicker; wait. If it persists too long, force-resync.
@@ -954,18 +1071,22 @@ function trackMoves(){
       S.suspiciousFrames = 0;
       toast('認識が不安定です。基準位置を再同期しました', true);
     }
-    return;
+    return false;
   }
   S.suspiciousFrames = 0;
   // If both colors moved between samples (rare, only possible with very low FPS), record B first.
   const bs = newOnes.filter(m=>m.c==='B');
   const ws = newOnes.filter(m=>m.c==='W');
+  pushUndoSnapshot();
   for(const m of bs) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
   for(const m of ws) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
+  const last = S.moves[S.moves.length-1];
+  if(S.autoTurn && last) S.turn = last.c === 'B' ? 'W' : 'B';
   syncPrevToCommitted();
   $('moveCount').textContent = S.moves.length;
   S.lastMoveTime = Date.now();
   playStoneClick();
+  return true;
 }
 
 // ============================================================
@@ -1109,14 +1230,22 @@ function attachBoardEdit(){
     const j = Math.round((py - margin) / step);
     if(i<0||i>=N||j<0||j>=N) return;
     const cur = S.committed[i][j];
-    const nxt = cur === '.' ? S.turn : (cur === 'B' ? 'W' : '.');
+    const nxt = cur === '.' ? 'B' : (cur === 'B' ? 'W' : '.');
     S.committed[i][j] = nxt;
     // Also adjust history so detection won't immediately overwrite the manual fix
     S.history[i][j] = Array.from({length: S.histDepth}, ()=>nxt);
     S.prevCommitted[i][j] = nxt;
+    if(S.movesInitialized){
+      S.corrections.push({afterMove:S.moves.length, x:i, y:j, value:nxt, t:Date.now()});
+    } else {
+      S.initialPosition = snapshotCommitted();
+    }
+    S.revision++;
     drawBoardCanvas('boardB');
     drawOverlay();
-    broadcastState();
+    saveGame();
+    broadcastState(true);
+    toast('盤面を修正しました（SGFにも反映）');
   });
 }
 
@@ -1127,7 +1256,7 @@ function sgfCoord(x, y){
   // SGF columns/rows: 0..N-1 → 'a'..  (no skip)
   return String.fromCharCode(97 + x) + String.fromCharCode(97 + y);
 }
-function buildSGFFrom(N, initialBoard, currentBoard, moves, turn){
+function buildSGFFrom(N, initialBoard, currentBoard, moves, turn, corrections){
   const date = new Date().toISOString().slice(0,10);
   let body = `(;FF[4]GM[1]CA[UTF-8]SZ[${N}]DT[${date}]AP[GoBoardCameraStream:1.0]`;
   const initial = initialBoard || currentBoard;
@@ -1140,9 +1269,32 @@ function buildSGFFrom(N, initialBoard, currentBoard, moves, turn){
     if(ab.length) body += '\nAB' + ab.map(c=>'['+c+']').join('');
     if(aw.length) body += '\nAW' + aw.map(c=>'['+c+']').join('');
   }
+  const setupByMove = new Map();
+  for(const c of (corrections||[])){
+    if(!setupByMove.has(c.afterMove)) setupByMove.set(c.afterMove, new Map());
+    setupByMove.get(c.afterMove).set(c.x+','+c.y, c);
+  }
+  function appendSetup(afterMove){
+    const edits = setupByMove.get(afterMove);
+    if(!edits || !edits.size) return;
+    const ab=[], aw=[], ae=[];
+    for(const c of edits.values()){
+      const p=sgfCoord(c.x,c.y);
+      if(c.value==='B') ab.push(p); else if(c.value==='W') aw.push(p); else ae.push(p);
+    }
+    body += ';';
+    if(ab.length) body += 'AB' + ab.map(c=>'['+c+']').join('');
+    if(aw.length) body += 'AW' + aw.map(c=>'['+c+']').join('');
+    if(ae.length) body += 'AE' + ae.map(c=>'['+c+']').join('');
+  }
+  appendSetup(0);
   if(moves && moves.length){
     body += '\n';
-    for(const m of moves) body += `;${m.c}[${sgfCoord(m.x, m.y)}]`;
+    for(let k=0;k<moves.length;k++){
+      const m=moves[k];
+      body += `;${m.c}[${m.pass?'':sgfCoord(m.x,m.y)}]`;
+      appendSetup(k+1);
+    }
   } else if(turn){
     body += `\nPL[${turn}]`;
   }
@@ -1163,7 +1315,7 @@ function generateSGF(){
   const N = S.size;
   const initial = (S.trackMoves && S.movesInitialized && S.initialPosition) ? S.initialPosition : null;
   const moves = S.trackMoves ? S.moves : null;
-  const text = buildSGFFrom(N, initial, S.committed, moves, S.turn);
+  const text = buildSGFFrom(N, initial, S.committed, moves, S.turn, S.corrections);
   downloadSGF(text, 'goboard');
   toast('SGF をダウンロードしました');
 }
@@ -1187,6 +1339,9 @@ function startPeerHost(forceNewId){
     return;
   }
   if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
+  S.conns = [];
+  $('viewerCount').textContent = '0';
+  S.lastSentRevision = -1;
   let stored = null;
   try{ stored = localStorage.getItem('goboard.peerShortId'); }catch(e){}
   let shortId;
@@ -1203,8 +1358,15 @@ function startPeerHost(forceNewId){
     S.peerId = pid;
     const shortId = pid.replace(PEER_PREFIX, '');
     $('roomId').textContent = shortId;
-    const url = location.origin + location.pathname + '?view=' + shortId;
-    $('viewUrl').textContent = url;
+    if(location.protocol === 'file:'){
+      $('viewUrl').textContent = '共有にはHTTPSで公開してください';
+    } else {
+      const viewUrl = new URL(location.href);
+      viewUrl.search = '';
+      viewUrl.hash = '';
+      viewUrl.searchParams.set('view', shortId);
+      $('viewUrl').textContent = viewUrl.toString();
+    }
     setLiveBadge('live');
     toast('部屋ID: ' + shortId);
   });
@@ -1246,20 +1408,36 @@ function snapshotState(){
     size: S.size,
     committed: S.committed,
     moves: S.trackMoves ? S.moves : [],
+    corrections: S.trackMoves ? S.corrections : [],
     initialPosition: (S.trackMoves && S.movesInitialized) ? S.initialPosition : null,
     turn: S.turn,
+    revision: S.revision,
     ts: Date.now(),
   };
+}
+function isValidPeerState(data){
+  if(!data || data.type!=='state' || ![9,13,19].includes(data.size)) return false;
+  if(!isValidBoard(data.committed,data.size)) return false;
+  if(!Array.isArray(data.moves) || data.moves.length>2000 || !data.moves.every(m=>isValidMove(m,data.size))) return false;
+  if(data.corrections!==undefined && (!Array.isArray(data.corrections) || data.corrections.length>2000 || !data.corrections.every(c=>
+    c && Number.isInteger(c.afterMove)&&Number.isInteger(c.x)&&Number.isInteger(c.y)&&
+    c.afterMove>=0&&c.afterMove<=data.moves.length&&c.x>=0&&c.y>=0&&c.x<data.size&&c.y<data.size&&
+    (c.value==='B'||c.value==='W'||c.value==='.')
+  ))) return false;
+  if(data.initialPosition!==null && data.initialPosition!==undefined && !isValidBoard(data.initialPosition,data.size)) return false;
+  return true;
 }
 function sendStateTo(conn){
   try{ conn.send(snapshotState()); }catch(e){ console.warn(e); }
 }
 let _bcLastSent = 0;
-function broadcastState(){
+function broadcastState(force){
   if(!S.conns.length) return;
+  if(!force && S.lastSentRevision === S.revision) return;
   const now = Date.now();
-  if(now - _bcLastSent < 80) return; // throttle
+  if(!force && now - _bcLastSent < 80) return; // throttle
   _bcLastSent = now;
+  S.lastSentRevision = S.revision;
   const snap = snapshotState();
   for(const c of S.conns){
     try{ c.send(snap); }catch(e){}
@@ -1270,6 +1448,8 @@ function broadcastState(){
 // PEERJS VIEWING
 // ============================================================
 function startPeerViewer(shortId){
+  shortId = normalizeRoomId(shortId);
+  if(!shortId){ toast('部屋IDは英数字6文字で入力してください', true); showScreen('modeSelect'); return; }
   $('vRoomId').textContent = shortId;
   if(typeof Peer === 'undefined'){
     setVStatus('PeerJS が読み込めません。ネット接続を確認してください', 'disconnected');
@@ -1302,6 +1482,10 @@ function connectToHost(shortId){
   });
   conn.on('data', (data)=>{
     if(data && data.type === 'state'){
+      if(!isValidPeerState(data)){
+        setVStatus('受信データが不正なため破棄しました', 'disconnected');
+        return;
+      }
       S.vLatestState = data;
       drawBoardCanvas('boardV', {
         size: data.size,
@@ -1383,12 +1567,17 @@ async function enterBroadcast(){
   if(!checkSecure()) return;
   showScreen('broadcastScreen');
   ensureCorners();
-  initDetectionState();
-  S.moves = [];
-  S.movesInitialized = false;
-  S.initialPosition = null;
+  const restored = restoreGame();
+  if(!restored){
+    initDetectionState();
+    S.moves = [];
+    S.corrections = [];
+    S.undoStack = [];
+    S.movesInitialized = false;
+    S.initialPosition = null;
+  }
   S.suspiciousFrames = 0;
-  $('moveCount').textContent = 0;
+  $('moveCount').textContent = S.moves.length;
   // Sync UI to settings
   $('blackTh').value = S.blackTh; $('blackVal').textContent = S.blackTh;
   $('whiteTh').value = S.whiteTh; $('whiteVal').textContent = S.whiteTh;
@@ -1400,7 +1589,10 @@ async function enterBroadcast(){
   $('soundOn').checked = S.soundOn;
   $('showMoveNum').checked = S.showMoveNum;
   setActiveSize(S.size);
+  updateTurnUI();
   drawBoardCanvas('boardB');
+  if(restored) toast('前回の盤面と棋譜を復元しました');
+  requestWakeLock();
   await listCameras();
   try{
     await startCamera();
@@ -1442,6 +1634,7 @@ async function retryCamera(){
 function exitBroadcast(){
   stopProcessingLoop();
   stopCamera();
+  releaseWakeLock();
   if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
   S.conns = [];
   showScreen('modeSelect');
@@ -1466,15 +1659,13 @@ function changeSize(n){
   if(n === S.size) return;
   S.size = n;
   initDetectionState();
-  S.moves = [];
-  S.movesInitialized = false;
-  S.initialPosition = null;
-  S.suspiciousFrames = 0;
-  $('moveCount').textContent = 0;
+  clearTracking();
+  S.revision++;
   setActiveSize(n);
   drawBoardCanvas('boardB');
   drawOverlay();
   saveSettings();
+  saveGame();
   toast(n + '路盤に変更しました');
 }
 
@@ -1509,21 +1700,15 @@ function init(){
 
   // Mode select buttons
   $('btnBroadcast').addEventListener('click', enterBroadcast);
-  $('btnView').addEventListener('click', ()=>{
-    const v = $('joinId').value.trim().toUpperCase();
-    if(!v){ $('joinId').focus(); toast('部屋IDを入力してください', true); return; }
+  function joinFromInput(){
+    const v = normalizeRoomId($('joinId').value);
+    if(!v){ $('joinId').focus(); toast('部屋IDは英数字6文字で入力してください', true); return; }
     enterView(v);
-  });
-  $('btnJoin').addEventListener('click', ()=>{
-    const v = $('joinId').value.trim().toUpperCase();
-    if(!v){ toast('部屋IDを入力してください', true); return; }
-    enterView(v);
-  });
+  }
+  $('btnView').addEventListener('click', joinFromInput);
+  $('btnJoin').addEventListener('click', joinFromInput);
   $('joinId').addEventListener('keydown', (e)=>{
-    if(e.key === 'Enter'){
-      const v = $('joinId').value.trim().toUpperCase();
-      if(v) enterView(v);
-    }
+    if(e.key === 'Enter') joinFromInput();
   });
 
   // Broadcaster controls
@@ -1541,19 +1726,40 @@ function init(){
   $('targetFps').addEventListener('input', e=>{ S.targetFps = +e.target.value; $('fpsVal').textContent = S.targetFps; saveSettings(); });
   $('dbgOverlay').addEventListener('change', e=>{ S.dbgOverlay = e.target.checked; saveSettings(); drawOverlay(); });
   $('autoTurn').addEventListener('change', e=>{ S.autoTurn = e.target.checked; saveSettings(); });
-  $('trackMoves').addEventListener('change', e=>{ S.trackMoves = e.target.checked; saveSettings(); });
+  $('trackMoves').addEventListener('change', e=>{
+    S.trackMoves = e.target.checked;
+    if(S.trackMoves){ clearTracking(); toast('着手記録を再開。現在の盤面を初期局面にします'); }
+    saveSettings(); saveGame();
+  });
   $('soundOn').addEventListener('change', e=>{
     S.soundOn = e.target.checked;
     saveSettings();
     if(S.soundOn) playStoneClick();
   });
   $('showMoveNum').addEventListener('change', e=>{ S.showMoveNum = e.target.checked; saveSettings(); drawBoardCanvas('boardB'); });
+  $('turnB').addEventListener('click', ()=>setTurn('B', true));
+  $('turnW').addEventListener('click', ()=>setTurn('W', true));
+  $('btnPass').addEventListener('click', ()=>{
+    if(!S.movesInitialized){
+      S.initialPosition = snapshotCommitted();
+      S.movesInitialized = true;
+    }
+    pushUndoSnapshot();
+    const c = S.turn;
+    S.moves.push({c, pass:true, t:Date.now()});
+    if(S.autoTurn) S.turn = c==='B' ? 'W' : 'B';
+    $('moveCount').textContent = S.moves.length;
+    S.revision++;
+    updateTurnUI(); saveGame(); drawBoardCanvas('boardB'); broadcastState(true);
+    toast((c==='B'?'黒':'白') + 'のパスを記録しました');
+  });
   $('btnReset').addEventListener('click', ()=>{
     S.corners = defaultCorners();
     initDetectionState();
-    S.movesInitialized = false;
-    S.initialPosition = null;
+    clearTracking();
+    S.revision++;
     saveSettings();
+    saveGame();
     drawOverlay();
     toast('隅をリセットしました - ドラッグで合わせて下さい');
   });
@@ -1562,18 +1768,17 @@ function init(){
     // Rotate corner labels 90° CW: TL←BL, TR←TL, BR←TR, BL←BR
     S.corners = [S.corners[3], S.corners[0], S.corners[1], S.corners[2]];
     initDetectionState();
-    S.movesInitialized = false;
-    S.initialPosition = null;
+    clearTracking();
+    S.revision++;
     saveSettings();
+    saveGame();
     drawOverlay();
     toast('盤を90°回転しました');
   });
   $('btnClearMoves').addEventListener('click', ()=>{
-    S.moves = [];
-    $('moveCount').textContent = 0;
-    S.movesInitialized = false;
-    S.initialPosition = null;
-    S.suspiciousFrames = 0;
+    clearTracking();
+    S.revision++;
+    saveGame();
     toast('履歴をクリア。次の安定検出を初期局面とします');
   });
   $('btnSetInitial').addEventListener('click', ()=>{
@@ -1582,16 +1787,19 @@ function init(){
     syncPrevToCommitted();
     S.movesInitialized = true;
     S.moves = [];
+    S.corrections = [];
+    S.undoStack = [];
     S.suspiciousFrames = 0;
     $('moveCount').textContent = 0;
+    S.revision++;
+    saveGame();
+    broadcastState(true);
     toast('現在の局面を初手前として設定');
   });
   $('btnRecalib').addEventListener('click', ()=>{
-    initDetectionState();
-    S.movesInitialized = false;
-    S.initialPosition = null;
+    initDetectionState(S.committed);
     S.suspiciousFrames = 0;
-    toast('検出履歴をクリアしました');
+    toast('現在の盤面を保ったまま検出を再同期しました');
   });
   $('btnSGF').addEventListener('click', generateSGF);
   $('btnPng').addEventListener('click', ()=>{
@@ -1608,18 +1816,23 @@ function init(){
     }, 'image/png');
   });
   $('btnUndo').addEventListener('click', ()=>{
-    if(!S.moves.length){ toast('取消す手がありません', true); return; }
-    const m = S.moves.pop();
-    if(S.committed[m.x] && S.committed[m.x][m.y] === m.c){
-      S.committed[m.x][m.y] = '.';
-      S.history[m.x][m.y] = Array.from({length:S.histDepth}, ()=>'.');
-      S.prevCommitted[m.x][m.y] = '.';
+    const snap = S.undoStack.pop();
+    if(!snap){ toast('取消す手がありません', true); return; }
+    S.committed = cloneBoard(snap.board);
+    S.prevCommitted = cloneBoard(snap.board);
+    for(let i=0;i<S.size;i++) for(let j=0;j<S.size;j++){
+      S.history[i][j] = Array.from({length:S.histDepth}, ()=>S.committed[i][j]);
     }
+    S.moves.length = Math.max(0, snap.movesLength);
+    S.corrections.length = Math.max(0, snap.correctionsLength||0);
+    S.turn = snap.turn === 'W' ? 'W' : 'B';
     $('moveCount').textContent = S.moves.length;
+    S.revision++;
+    updateTurnUI(); saveGame();
     drawBoardCanvas('boardB');
     drawOverlay();
-    broadcastState();
-    toast('最終手を取消');
+    broadcastState(true);
+    toast('最終手・パスを取り消しました。実物の盤面も戻してください');
   });
   $('copyId').addEventListener('click', async ()=>{
     const v = $('roomId').textContent;
@@ -1670,7 +1883,7 @@ function init(){
   $('vSgfBtn').addEventListener('click', ()=>{
     if(!S.vLatestState){ toast('盤面データがまだ届いていません', true); return; }
     const d = S.vLatestState;
-    const text = buildSGFFrom(d.size, d.initialPosition || null, d.committed, d.moves, d.turn);
+    const text = buildSGFFrom(d.size, d.initialPosition || null, d.committed, d.moves, d.turn, d.corrections||[]);
     downloadSGF(text, 'goboard_view');
     toast('SGFをダウンロード');
   });
@@ -1680,18 +1893,17 @@ function init(){
   attachOverlayInput();
   attachBoardEdit();
 
-  // Render loop for overlay (decoupled from detection so handles look smooth)
-  function ovLoop(){
-    if(S.mode === 'broadcast') drawOverlay();
-    requestAnimationFrame(ovLoop);
-  }
-  requestAnimationFrame(ovLoop);
+  document.addEventListener('visibilitychange', ()=>{
+    if(S.mode==='broadcast' && !document.hidden) requestWakeLock();
+  });
 
   // Auto-enter viewer if URL contains ?view=
   const params = new URLSearchParams(location.search);
   const v = params.get('view');
   if(v){
-    enterView(v.trim().toUpperCase());
+    const roomId = normalizeRoomId(v);
+    if(roomId) enterView(roomId);
+    else toast('URLの部屋IDが不正です', true);
   }
 }
 document.addEventListener('DOMContentLoaded', init);
