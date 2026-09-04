@@ -7,7 +7,7 @@
 <title>碁盤カメラ中継</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;background:#0e0e10;color:#e8e8ea;font-family:'Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none}
+html,body{height:100%;background:#0e0e10;color:#e8e8ea;font-family:'Hiragino Kaku Gothic ProN','Yu Gothic',Meiryo,sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation}
 button,input,select{font-family:inherit;font-size:inherit}
 button{cursor:pointer}
 a{color:#7cb7ff}
@@ -230,7 +230,7 @@ a{color:#7cb7ff}
     <div class="cam-area" id="camArea">
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
-      <div class="calibPanel" aria-live="polite">
+      <div class="calibPanel" id="calibPanel" aria-live="polite">
         <div class="orientationPicker" id="orientationPicker">
           <strong>黒番は画面のどちら側ですか？</strong>
           <small>黒番が座っている方向を選んでください<br>この方向を観戦画面の正面にします</small>
@@ -436,6 +436,7 @@ const S = {
   soundOn: false,
   showMoveNum: false,
   blackSide: 'bottom',
+  orientationConfirmed: false,
   // Move history
   moves: [],               // [{c:'B'|'W', x:i, y:j}]
   corrections: [],         // SGF setup edits: [{afterMove,x,y,value}]
@@ -475,6 +476,7 @@ const S = {
   calibrationDraft: [],
   calibrationOriginal: null,
   calibrationOriginalSide: 'bottom',
+  calibrationOriginalConfirmed: false,
   calibrationStage: 'orientation',
   calibrationSelected: 0,
   // Offscreen
@@ -521,6 +523,7 @@ function loadSettings(){
     if(typeof j.soundOn === 'boolean') S.soundOn = j.soundOn;
     if(typeof j.showMoveNum === 'boolean') S.showMoveNum = j.showMoveNum;
     if(['top','right','bottom','left'].includes(j.blackSide)) S.blackSide = j.blackSide;
+    if(typeof j.orientationConfirmed === 'boolean') S.orientationConfirmed = j.orientationConfirmed;
     if(j.selectedCamId) S.selectedCamId = j.selectedCamId;
   }catch(e){}
 }
@@ -539,6 +542,7 @@ function saveSettings(){
       soundOn: S.soundOn,
       showMoveNum: S.showMoveNum,
       blackSide: S.blackSide,
+      orientationConfirmed: S.orientationConfirmed,
       selectedCamId: S.selectedCamId,
     }));
   }catch(e){}
@@ -828,7 +832,7 @@ function getOrientedCorners(corners=S.corners,side=S.blackSide){
 }
 function updateOrientationStatus(){
   const el=$('orientationStatus');
-  if(el) el.textContent='黒番側が'+BLACK_SIDE_LABELS[S.blackSide];
+  if(el) el.textContent=S.orientationConfirmed ? '黒番側が'+BLACK_SIDE_LABELS[S.blackSide] : '未設定';
 }
 function updateCalibrationUI(){
   const count = S.calibrationDraft.length;
@@ -848,11 +852,13 @@ function updateCalibrationUI(){
 function startCalibration(stage='orientation'){
   if(!S.videoEl || !S.videoEl.videoWidth){ toast('カメラが映ってから設定してください', true); return; }
   S.calibrating = true;
-  S.calibrationStage = stage;
+  S.calibrationStage = stage==='corners' && S.orientationConfirmed ? 'corners' : 'orientation';
   S.calibrationOriginal = S.corners ? S.corners.map(p=>({...p})) : null;
   S.calibrationOriginalSide = S.blackSide;
+  S.calibrationOriginalConfirmed = S.orientationConfirmed;
   S.calibrationStep = 4;
-  S.calibrationDraft = (S.calibrationOriginal || defaultCorners()).map(p=>({...p}));
+  S.calibrationDraft = S.calibrationStage==='corners'
+    ? (S.calibrationOriginal || defaultCorners()).map(p=>({...p})) : [];
   S.calibrationSelected = 0;
   S.draggingHandle = -1;
   $('camArea').classList.add('calibrating');
@@ -862,7 +868,9 @@ function startCalibration(stage='orientation'){
 function selectBlackSide(side){
   if(!BLACK_SIDE_LABELS[side]) return;
   S.blackSide = side;
+  S.orientationConfirmed = true;
   S.calibrationStage = 'corners';
+  S.calibrationDraft = (S.calibrationOriginal || defaultCorners()).map(p=>({...p}));
   updateOrientationStatus();
   updateCalibrationUI();
   drawOverlay();
@@ -870,6 +878,7 @@ function selectBlackSide(side){
 }
 function cancelCalibration(){
   S.blackSide = S.calibrationOriginalSide;
+  S.orientationConfirmed = S.calibrationOriginalConfirmed;
   S.calibrating = false;
   S.calibrationDraft = [];
   S.draggingHandle = -1;
@@ -894,6 +903,10 @@ function isUsableQuad(q){
   return signs.every(v=>v>0) || signs.every(v=>v<0);
 }
 function finishCalibration(){
+  if(!S.orientationConfirmed || S.calibrationStage!=='corners'){
+    toast('先に黒番側の向きを選んでください', true);
+    return;
+  }
   if(!isUsableQuad(S.calibrationDraft)){
     toast('四隅が交差しています。左上から時計回りに選び直してください', true);
     return;
@@ -996,7 +1009,7 @@ function drawOverlay(){
     if(pts.length===4) drawBlackSideIndicator(ctx,pts,S.blackSide);
     return;
   }
-  if(!S.corners) return;
+  if(!S.orientationConfirmed || !S.corners) return;
   const pts = S.corners.map(normToOverlay);
   // Quad outline
   ctx.lineWidth = 2;
@@ -1164,7 +1177,7 @@ function commitFromHistory(){
   return changed;
 }
 function detectFrame(){
-  if(S.calibrating) return;
+  if(S.calibrating || !S.orientationConfirmed) return;
   if(!S.videoEl || !S.videoEl.videoWidth) return;
   ensureCorners();
   const v = S.videoEl;
@@ -1993,6 +2006,9 @@ function checkSecure(){
 function init(){
   loadSettings();
   updateOrientationStatus();
+  document.addEventListener('dblclick', e=>{
+    if(S.mode==='broadcast') e.preventDefault();
+  }, {passive:false});
   S.procCanvas = document.createElement('canvas');
   S.procCanvas.width = PROC_W; S.procCanvas.height = PROC_W*0.75;
   S.procCtx = S.procCanvas.getContext('2d', { willReadFrequently: true });
