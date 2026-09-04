@@ -266,10 +266,10 @@ a{color:#7cb7ff}
         <span>長押しで連続移動できます</span>
       </div>
       <div class="cornerSelect" id="cornerSelect">
-        <button type="button" data-corner="0">① 左上</button>
-        <button type="button" data-corner="1">② 右上</button>
-        <button type="button" data-corner="2">③ 右下</button>
-        <button type="button" data-corner="3">④ 左下</button>
+        <button type="button" data-corner="0">① 画面左上</button>
+        <button type="button" data-corner="1">② 画面右上</button>
+        <button type="button" data-corner="2">③ 画面右下</button>
+        <button type="button" data-corner="3">④ 画面左下</button>
       </div>
       <div class="nudgeBtns">
         <button type="button" data-dx="-1" data-dy="0" aria-label="左へ動かす">←</button>
@@ -411,7 +411,7 @@ const PROC_W = 640;          // downscaled processing width
 const PEER_PREFIX = 'goboard-';
 const STORAGE_KEY = 'goboard.settings.v1';
 const GAME_KEY = 'goboard.game.v2';
-const CALIBRATION_UI_KEY = 'goboard.calibration.ui.v3';
+const CALIBRATION_UI_KEY = 'goboard.calibration.ui.v4';
 
 // ============================================================
 // STATE
@@ -478,6 +478,7 @@ const S = {
   calibrationOriginalSide: 'bottom',
   calibrationOriginalConfirmed: false,
   calibrationStage: 'orientation',
+  calibrationResetsOrientation: false,
   calibrationSelected: 0,
   // Offscreen
   procCanvas: null,
@@ -507,6 +508,15 @@ function median(arr){
   const n = a.length;
   if(!n) return 0;
   return n%2 ? a[(n-1)>>1] : (a[n/2-1]+a[n/2])/2;
+}
+function classifyIntersection(v,s,baseV,baseS,blackTh,whiteTh){
+  if(v < baseV-blackTh) return 'B';
+  const brightGap=v-baseV;
+  const saturationLimit=Math.min(0.26,Math.max(0.10,baseS*0.72));
+  const losesWoodColor=s<saturationLimit && baseS-s>0.035;
+  const softBrightnessGate=Math.max(4,whiteTh*0.18);
+  if(brightGap>whiteTh || (losesWoodColor && brightGap>softBrightnessGate)) return 'W';
+  return '.';
 }
 function loadSettings(){
   try{
@@ -819,10 +829,10 @@ function overlayToNorm(px, py){
 
 const HANDLE_R = 22;
 const CALIBRATION_LABELS = [
-  ['① 左上を合わせる','映像の交点をタップするか、下の矢印で動かします'],
-  ['② 右上を合わせる','映像の交点をタップするか、下の矢印で動かします'],
-  ['③ 右下を合わせる','映像の交点をタップするか、下の矢印で動かします'],
-  ['④ 左下を合わせる','映像の交点をタップするか、下の矢印で動かします'],
+  ['① 画面の左上を合わせる','スマホ画面で見た左上の交点です。黒番目線ではありません'],
+  ['② 画面の右上を合わせる','スマホ画面で見た右上の交点です。黒番目線ではありません'],
+  ['③ 画面の右下を合わせる','スマホ画面で見た右下の交点です。黒番目線ではありません'],
+  ['④ 画面の左下を合わせる','スマホ画面で見た左下の交点です。黒番目線ではありません'],
 ];
 const BLACK_SIDE_LABELS = {top:'画面上',right:'画面右',bottom:'画面下',left:'画面左'};
 function getOrientedCorners(corners=S.corners,side=S.blackSide){
@@ -853,6 +863,7 @@ function startCalibration(stage='orientation'){
   if(!S.videoEl || !S.videoEl.videoWidth){ toast('カメラが映ってから設定してください', true); return; }
   S.calibrating = true;
   S.calibrationStage = stage==='corners' && S.orientationConfirmed ? 'corners' : 'orientation';
+  S.calibrationResetsOrientation = S.calibrationStage==='orientation';
   S.calibrationOriginal = S.corners ? S.corners.map(p=>({...p})) : null;
   S.calibrationOriginalSide = S.blackSide;
   S.calibrationOriginalConfirmed = S.orientationConfirmed;
@@ -874,7 +885,7 @@ function selectBlackSide(side){
   updateOrientationStatus();
   updateCalibrationUI();
   drawOverlay();
-  toast('黒番側を'+BLACK_SIDE_LABELS[side]+'に設定しました');
+  toast('黒番側を'+BLACK_SIDE_LABELS[side]+'に設定。四隅はスマホ画面基準で合わせます');
 }
 function cancelCalibration(){
   S.blackSide = S.calibrationOriginalSide;
@@ -912,13 +923,14 @@ function finishCalibration(){
     return;
   }
   const sideChanged = S.blackSide !== S.calibrationOriginalSide;
+  const resetForOrientation = sideChanged || S.calibrationResetsOrientation;
   S.corners = S.calibrationDraft.map(p=>({...p}));
   S.calibrating = false;
   S.calibrationDraft = [];
   S.draggingHandle = -1;
   $('camArea').classList.remove('calibrating');
   $('calibAdjust').classList.remove('show');
-  if(sideChanged){ initDetectionState(); clearTracking(); S.revision++; }
+  if(resetForOrientation){ initDetectionState(); clearTracking(); S.revision++; }
   else initDetectionState(S.committed);
   S.suspiciousFrames = 0;
   try{ localStorage.setItem(CALIBRATION_UI_KEY, '1'); }catch(e){}
@@ -926,7 +938,7 @@ function finishCalibration(){
   saveGame();
   updateOrientationStatus();
   drawOverlay();
-  toast(sideChanged ? '向きと四隅を固定しました。盤面を読み直します' : '碁盤の位置を固定しました');
+  toast(resetForOrientation ? '向きと四隅を固定しました。盤面を読み直します' : '碁盤の位置を固定しました');
 }
 function nudgeCalibrationCorner(dx,dy){
   if(!S.calibrating || S.calibrationDraft.length !== 4) return;
@@ -971,6 +983,17 @@ function drawBlackSideIndicator(ctx,pts,side){
   ctx.fillStyle='#f4d03f'; ctx.fillText('黒番側',x,y);
   ctx.restore();
 }
+function drawBlackViewLabels(ctx){
+  const logical=getOrientedCorners(S.calibrationDraft).map(normToOverlay);
+  const labels=[['黒目線 左上',logical[0]],['黒目線 右上',logical[1]]];
+  ctx.save();
+  ctx.font='900 12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+  for(const [label,p] of labels){
+    ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,.92)'; ctx.strokeText(label,p.x,p.y-28);
+    ctx.fillStyle='#fff'; ctx.fillText(label,p.x,p.y-28);
+  }
+  ctx.restore();
+}
 function drawOverlay(){
   const ov = $('overlay');
   const ctx = ov.getContext('2d');
@@ -1007,6 +1030,7 @@ function drawOverlay(){
     }
     if(pts.length===4) drawCalibrationMagnifier(ctx,ov,pts[S.calibrationSelected]);
     if(pts.length===4) drawBlackSideIndicator(ctx,pts,S.blackSide);
+    if(pts.length===4) drawBlackViewLabels(ctx);
     return;
   }
   if(!S.orientationConfirmed || !S.corners) return;
@@ -1210,8 +1234,9 @@ function detectFrame(){
 
   // 1st pass: compute median V at each intersection
   const Vs = new Float32Array(N*N);
-  const Ss = new Float32Array(N*N);  // saturation proxy (max-min)/max
+  const Ss = new Float32Array(N*N);  // median HSV-like saturation in the patch
   const buf = []; // temp for per-patch sort
+  const satBuf = [];
   for(let i=0;i<N;i++){
     const u = i/(N-1);
     for(let j=0;j<N;j++){
@@ -1219,7 +1244,7 @@ function detectFrame(){
       const p = Hg(u, vN);
       const cx = p.x|0, cy = p.y|0;
       buf.length = 0;
-      let smax = 0;
+      satBuf.length = 0;
       for(let dy=-patchR; dy<=patchR; dy++){
         const y = cy + dy;
         if(y < 0 || y >= H) continue;
@@ -1233,25 +1258,27 @@ function detectFrame(){
           const mn = r<g?(r<b?r:b):(g<b?g:b);
           buf.push(mx);
           const s = mx>0 ? (mx-mn)/mx : 0;
-          if(s > smax) smax = s;
+          satBuf.push(s);
         }
       }
       const m = median(buf);
       Vs[i*N + j] = m;
-      Ss[i*N + j] = smax;
+      Ss[i*N + j] = median(satBuf);
     }
   }
   // Estimate board reference brightness as median of all intersections.
   // Most points are empty (= wood) for typical positions, so median ≈ wood V.
   const Vall = Array.from(Vs);
   const ref = median(Vall);
+  const refS = median(Array.from(Ss));
   // Pass 1: classify with the global reference
   const cls1 = new Array(N);
   for(let i=0;i<N;i++){
     cls1[i] = new Array(N);
     for(let j=0;j<N;j++){
       const v = Vs[i*N + j];
-      cls1[i][j] = (v < ref - S.blackTh) ? 'B' : (v > ref + S.whiteTh) ? 'W' : '.';
+      const s = Ss[i*N + j];
+      cls1[i][j] = classifyIntersection(v,s,ref,refS,S.blackTh,S.whiteTh);
     }
   }
   // Pass 2: refine with a local reference computed from nearby cells
@@ -1261,22 +1288,29 @@ function detectFrame(){
   const cls = new Array(N);
   const radius = 2;
   const tmp = [];
+  const tmpS = [];
   for(let i=0;i<N;i++){
     cls[i] = new Array(N);
     for(let j=0;j<N;j++){
       tmp.length = 0;
+      tmpS.length = 0;
       for(let di=-radius; di<=radius; di++){
         const ni = i+di;
         if(ni<0||ni>=N) continue;
         for(let dj=-radius; dj<=radius; dj++){
           const nj = j+dj;
           if(nj<0||nj>=N) continue;
-          if(cls1[ni][nj] === '.') tmp.push(Vs[ni*N + nj]);
+          if(cls1[ni][nj] === '.'){
+            tmp.push(Vs[ni*N + nj]);
+            tmpS.push(Ss[ni*N + nj]);
+          }
         }
       }
       const lref = tmp.length >= 4 ? median(tmp) : ref;
+      const lrefS = tmpS.length >= 4 ? median(tmpS) : refS;
       const v = Vs[i*N + j];
-      cls[i][j] = (v < lref - S.blackTh) ? 'B' : (v > lref + S.whiteTh) ? 'W' : '.';
+      const s = Ss[i*N + j];
+      cls[i][j] = classifyIntersection(v,s,lref,lrefS,S.blackTh,S.whiteTh);
     }
   }
   // Occlusion / spike rejection: if this frame's classification differs from the
