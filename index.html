@@ -160,9 +160,13 @@ a{color:#7cb7ff}
 .remoteCanvasArea{grid-column:1;grid-row:3;min-width:0;min-height:0;display:grid;place-items:center;overflow:hidden;background:#050505;border-radius:10px}
 .remoteSidePanel{grid-column:2;grid-row:3;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:8px;padding:1px 2px 2px 0}
 .remoteSectionTitle{font-size:.75rem;color:#9eaaa4;font-weight:700}
-.remoteSides,.remoteCorners,.remoteNudge{display:grid;gap:7px}.remoteSides,.remoteCorners{grid-template-columns:repeat(2,1fr)}.remoteNudge{grid-template-columns:repeat(4,1fr)}
+.remoteSides,.remoteCorners,.remoteNudge{display:grid;gap:7px}.remoteSides{grid-template-columns:repeat(2,1fr)}.remoteCorners,.remoteNudge{grid-template-columns:repeat(4,1fr)}
 .remoteSides button,.remoteCorners button,.remoteNudge button,.remoteApply{min-height:44px;border:1px solid rgba(255,255,255,.22);border-radius:9px;background:#202422;color:#fff;font-weight:800}
 .remoteSides button.active,.remoteCorners button.active{background:#f4d03f;color:#161616;border-color:#f4d03f}
+.remoteLoupeHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.remoteZoomBtns{display:flex;gap:4px}.remoteZoomBtns button{min-width:38px;min-height:30px;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:#202422;color:#cbd3cf;font-weight:800;font-size:.72rem}.remoteZoomBtns button.active{background:#f4d03f;color:#161616;border-color:#f4d03f}
+.remoteLoupe{height:clamp(110px,18vh,150px);border:1px solid rgba(244,208,63,.42);border-radius:8px;background:#000;overflow:hidden}
+.remoteLoupe canvas{display:block;width:100%;height:100%}
 .remoteCanvasWrap{position:relative;width:1px;height:1px;background:#000;border-radius:8px;overflow:hidden;line-height:0}
 .remoteCanvasWrap img{display:block;width:100%;height:100%}
 .remoteCanvasWrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
@@ -207,12 +211,14 @@ a{color:#7cb7ff}
   .remoteSidePanel{grid-column:1;grid-row:4;max-height:43dvh}
   .remoteSides,.remoteCorners{grid-template-columns:repeat(4,1fr)}
   .remoteSides button,.remoteCorners button{font-size:.72rem;padding:4px}
+  .remoteLoupe{height:105px}
 }
 @media (min-width:760px) and (max-height:680px){
   .remoteCalib{gap:5px;padding-top:5px;padding-bottom:5px}
   .remoteHead{min-height:34px}.remoteHelp{font-size:.72rem}
   .remoteSidePanel{gap:5px}.remoteSides,.remoteCorners,.remoteNudge,.remoteCornerTools{gap:5px}
   .remoteSides button,.remoteCorners button,.remoteNudge button,.remoteApply{min-height:38px}
+  .remoteLoupe{height:100px}
 }
 </style>
 </head>
@@ -441,6 +447,8 @@ a{color:#7cb7ff}
     <div class="remoteCornerTools" id="remoteCornerTools">
       <div class="remoteSectionTitle">2. 調整する隅</div>
       <div class="remoteCorners" id="remoteCorners"><button type="button" data-corner="0">左上</button><button type="button" data-corner="1">右上</button><button type="button" data-corner="2">右下</button><button type="button" data-corner="3">左下</button></div>
+      <div class="remoteLoupeHead"><div class="remoteSectionTitle">選択中の隅を拡大</div><div class="remoteZoomBtns" id="remoteZoomBtns"><button type="button" data-zoom="3">3×</button><button type="button" data-zoom="5" class="active" aria-pressed="true">5×</button><button type="button" data-zoom="8">8×</button></div></div>
+      <div class="remoteLoupe"><canvas id="remoteLoupe" aria-label="選択した隅の拡大表示"></canvas></div>
       <div class="remoteSectionTitle">矢印で細かく移動</div>
       <div class="remoteNudge"><button type="button" data-dx="-1" data-dy="0" aria-label="左へ移動">←</button><button type="button" data-dx="0" data-dy="-1" aria-label="上へ移動">↑</button><button type="button" data-dx="0" data-dy="1" aria-label="下へ移動">↓</button><button type="button" data-dx="1" data-dy="0" aria-label="右へ移動">→</button></div>
       <button class="remoteApply" id="remoteApply" type="button">この設定をスマホへ送る</button>
@@ -543,7 +551,7 @@ const S = {
 };
 const R = {
   image:null, pendingCorners:null, corners:[], side:null, selected:0,
-  dragging:-1, token:null, size:19, applyTimer:null,
+  dragging:-1, token:null, size:19, zoom:5, applyTimer:null,
 };
 
 // ============================================================
@@ -1932,17 +1940,47 @@ function layoutRemoteStage(){
   stage.style.width=Math.max(1,Math.floor(w))+'px';stage.style.height=Math.max(1,Math.floor(h))+'px';
   drawRemoteOverlay();
 }
+function drawRemoteLoupe(){
+  const c=$('remoteLoupe'),img=$('remoteImg'),r=c.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
+  if(!r.width||!r.height)return;
+  const cw=Math.max(1,Math.round(r.width*dpr)),ch=Math.max(1,Math.round(r.height*dpr));if(c.width!==cw)c.width=cw;if(c.height!==ch)c.height=ch;
+  const ctx=c.getContext('2d');ctx.fillStyle='#050505';ctx.fillRect(0,0,c.width,c.height);
+  if(!img.naturalWidth||!R.side||R.corners.length!==4)return;
+  const focus=R.corners[R.selected],nw=img.naturalWidth,nh=img.naturalHeight,zoom=R.zoom||5;
+  const cropW=nw/zoom,cropH=cropW*c.height/c.width,x0=focus.x*nw-cropW/2,y0=focus.y*nh-cropH/2;
+  const sx=Math.max(0,x0),sy=Math.max(0,y0),ex=Math.min(nw,x0+cropW),ey=Math.min(nh,y0+cropH);
+  if(ex>sx&&ey>sy){
+    const dx=(sx-x0)/cropW*c.width,dy=(sy-y0)/cropH*c.height,dw=(ex-sx)/cropW*c.width,dh=(ey-sy)/cropH*c.height;
+    ctx.drawImage(img,sx,sy,ex-sx,ey-sy,dx,dy,dw,dh);
+  }
+  const map=p=>({x:(p.x*nw-x0)/cropW*c.width,y:(p.y*nh-y0)/cropH*c.height});
+  if(isUsableQuad(R.corners)){
+    const logical=getOrientedCorners(R.corners,R.side).map(p=>({x:p.x*nw,y:p.y*nh})),H=makeHomography(logical),N=R.size||19;
+    const hm=p=>({x:(p.x-x0)/cropW*c.width,y:(p.y-y0)/cropH*c.height});
+    ctx.strokeStyle='rgba(244,208,63,.55)';ctx.lineWidth=1*dpr;
+    for(let i=0;i<N;i++){
+      const u=i/(N-1),a=hm(H(u,0)),b=hm(H(u,1)),d=hm(H(0,u)),e=hm(H(1,u));
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(e.x,e.y);ctx.stroke();
+    }
+  }
+  const quad=R.corners.map(map);ctx.strokeStyle='#f4d03f';ctx.lineWidth=2*dpr;ctx.beginPath();ctx.moveTo(quad[0].x,quad[0].y);for(let i=1;i<4;i++)ctx.lineTo(quad[i].x,quad[i].y);ctx.closePath();ctx.stroke();
+  const x=c.width/2,y=c.height/2;ctx.strokeStyle='#fff';ctx.lineWidth=1.5*dpr;
+  ctx.beginPath();ctx.moveTo(x-18*dpr,y);ctx.lineTo(x+18*dpr,y);ctx.moveTo(x,y-18*dpr);ctx.lineTo(x,y+18*dpr);ctx.stroke();
+  ctx.beginPath();ctx.arc(x,y,6*dpr,0,Math.PI*2);ctx.strokeStyle='#f4d03f';ctx.lineWidth=2*dpr;ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.72)';ctx.fillRect(6*dpr,6*dpr,34*dpr,20*dpr);ctx.fillStyle='#fff';ctx.font=`700 ${12*dpr}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(zoom+'×',23*dpr,16*dpr);
+}
 function drawRemoteOverlay(){
   const c=$('remoteOverlay'),img=$('remoteImg'),r=img.getBoundingClientRect();
   if(!r.width||!r.height) return;
-  const dpr=Math.min(devicePixelRatio||1,2); c.width=Math.round(r.width*dpr);c.height=Math.round(r.height*dpr);
+  const dpr=Math.min(devicePixelRatio||1,2),cw=Math.round(r.width*dpr),ch=Math.round(r.height*dpr);if(c.width!==cw)c.width=cw;if(c.height!==ch)c.height=ch;
   const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
   if(!R.side||R.corners.length!==4) return;
   const pts=R.corners.map(p=>({x:p.x*c.width,y:p.y*c.height}));
-  const logical=getOrientedCorners(R.corners,R.side).map(p=>({x:p.x*c.width,y:p.y*c.height}));
-  const H=makeHomography(logical),N=R.size||19;
-  ctx.strokeStyle='rgba(244,208,63,.3)';ctx.lineWidth=1;
-  for(let i=0;i<N;i++){const u=i/(N-1),a=H(u,0),b=H(u,1),d=H(0,u),e=H(1,u);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(e.x,e.y);ctx.stroke();}
+  if(isUsableQuad(R.corners)){
+    const logical=getOrientedCorners(R.corners,R.side).map(p=>({x:p.x*c.width,y:p.y*c.height}));
+    const H=makeHomography(logical),N=R.size||19;ctx.strokeStyle='rgba(244,208,63,.3)';ctx.lineWidth=1;
+    for(let i=0;i<N;i++){const u=i/(N-1),a=H(u,0),b=H(u,1),d=H(0,u),e=H(1,u);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(e.x,e.y);ctx.stroke();}
+  }
   ctx.strokeStyle='#f4d03f';ctx.lineWidth=2*dpr;ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<4;i++)ctx.lineTo(pts[i].x,pts[i].y);ctx.closePath();ctx.stroke();
   for(let i=0;i<4;i++){
     const p=pts[i],selected=i===R.selected,radius=(selected?10:7)*dpr;
@@ -1951,6 +1989,7 @@ function drawRemoteOverlay(){
     ctx.beginPath();ctx.arc(p.x,p.y,1.5*dpr,0,Math.PI*2);ctx.fillStyle=selected?'#fff':'#f4d03f';ctx.fill();
   }
   drawBlackSideIndicator(ctx,pts,R.side);
+  drawRemoteLoupe();
 }
 function setRemoteApplying(busy){
   const b=$('remoteApply');b.disabled=busy;b.textContent=busy?'スマホへ送信中…':'この設定をスマホへ送る';
@@ -2425,6 +2464,14 @@ function init(){
       R.selected=+b.dataset.corner;
       document.querySelectorAll('#remoteCorners button').forEach(x=>x.classList.toggle('active',x===b));
       drawRemoteOverlay();
+    });
+  });
+  document.querySelectorAll('#remoteZoomBtns button[data-zoom]').forEach(b=>{
+    b.setAttribute('aria-pressed',b.classList.contains('active')?'true':'false');
+    b.addEventListener('click',()=>{
+      R.zoom=+b.dataset.zoom;
+      document.querySelectorAll('#remoteZoomBtns button').forEach(x=>{const active=x===b;x.classList.toggle('active',active);x.setAttribute('aria-pressed',active?'true':'false');});
+      drawRemoteLoupe();
     });
   });
   document.querySelectorAll('.remoteNudge button').forEach(b=>{
