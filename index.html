@@ -61,6 +61,16 @@ a{color:#7cb7ff}
 .calibPanel{position:absolute;inset:0;z-index:10;display:none;flex-direction:column;pointer-events:none;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent 30%,transparent 68%,rgba(0,0,0,.82))}
 .cam-area.calibrating .calibPanel{display:flex}
 .cam-area.calibrating #overlay{z-index:9}
+.orientationPicker{display:none;position:absolute;inset:0;z-index:12;pointer-events:auto;flex-direction:column;align-items:center;justify-content:center;padding:12px;background:rgba(7,9,8,.88);text-align:center}
+.calibPanel.orientation .orientationPicker{display:flex}
+.calibPanel.orientation .calibGuide,.calibPanel.orientation .calibControls{display:none}
+.orientationPicker strong{font-size:1.05rem;color:#f4d03f}
+.orientationPicker small{margin-top:5px;color:#d0d5d2;font-size:.78rem;line-height:1.45}
+.sideGrid{display:grid;grid-template-columns:repeat(3,minmax(70px,92px));grid-template-rows:repeat(3,52px);gap:6px;margin-top:12px}
+.sideGrid button{border:1px solid rgba(244,208,63,.55);border-radius:10px;background:rgba(244,208,63,.1);color:#fff;font-weight:800;font-size:.82rem}
+.sideGrid button:active{background:#f4d03f;color:#171717;transform:scale(.96)}
+.sideGrid [data-side="top"]{grid-column:2;grid-row:1}.sideGrid [data-side="left"]{grid-column:1;grid-row:2}.sideGrid [data-side="right"]{grid-column:3;grid-row:2}.sideGrid [data-side="bottom"]{grid-column:2;grid-row:3}
+.sideGrid .boardMark{grid-column:2;grid-row:2;display:grid;place-items:center;border:1px solid rgba(255,255,255,.18);border-radius:8px;color:#8d9892;font-size:.72rem}
 .calibGuide{position:relative;z-index:10;margin:10px;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:rgba(12,14,13,.92);border:1px solid rgba(244,208,63,.55);box-shadow:0 4px 18px rgba(0,0,0,.35)}
 .calibStep{width:38px;height:38px;display:grid;place-items:center;border-radius:50%;background:#f4d03f;color:#141414;font-weight:900;font-size:1.1rem;flex:none}
 .calibGuide .text{min-width:0}
@@ -213,7 +223,7 @@ a{color:#7cb7ff}
     <div class="calibLaunch">
       <div class="copy">
         <strong>碁盤の位置</strong>
-        <small>横・斜め撮影も、四隅をタップして合わせられます</small>
+        <small>向き: <span id="orientationStatus">黒番側が画面下</span> ・ 横や斜め撮影にも対応</small>
       </div>
       <button id="btnCalibrate" type="button">碁盤を合わせる</button>
     </div>
@@ -221,6 +231,17 @@ a{color:#7cb7ff}
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
       <div class="calibPanel" aria-live="polite">
+        <div class="orientationPicker" id="orientationPicker">
+          <strong>黒番は画面のどちら側ですか？</strong>
+          <small>黒番が座っている方向を選んでください<br>この方向を観戦画面の正面にします</small>
+          <div class="sideGrid">
+            <button type="button" data-side="top">↑ 画面上</button>
+            <button type="button" data-side="left">← 画面左</button>
+            <span class="boardMark">碁盤</span>
+            <button type="button" data-side="right">画面右 →</button>
+            <button type="button" data-side="bottom">↓ 画面下</button>
+          </div>
+        </div>
         <div class="calibGuide">
           <span class="calibStep" id="calibStep">1</span>
           <div class="text">
@@ -332,8 +353,8 @@ a{color:#7cb7ff}
       <span id="turnInd">手番: --</span>
     </div>
     <div class="actions">
-      <button id="btnReset">四隅を選び直す</button>
-      <button id="btnRotate">盤を90°回転</button>
+      <button id="btnReset">四隅だけ調整</button>
+      <button id="btnRotate">向きから設定</button>
       <button id="btnSetInitial">現在を初手前に設定</button>
       <button id="btnClearMoves">履歴クリア</button>
       <button id="btnRecalib">認識を再同期</button>
@@ -390,7 +411,7 @@ const PROC_W = 640;          // downscaled processing width
 const PEER_PREFIX = 'goboard-';
 const STORAGE_KEY = 'goboard.settings.v1';
 const GAME_KEY = 'goboard.game.v2';
-const CALIBRATION_UI_KEY = 'goboard.calibration.ui.v2';
+const CALIBRATION_UI_KEY = 'goboard.calibration.ui.v3';
 
 // ============================================================
 // STATE
@@ -414,6 +435,7 @@ const S = {
   trackMoves: true,
   soundOn: false,
   showMoveNum: false,
+  blackSide: 'bottom',
   // Move history
   moves: [],               // [{c:'B'|'W', x:i, y:j}]
   corrections: [],         // SGF setup edits: [{afterMove,x,y,value}]
@@ -452,6 +474,8 @@ const S = {
   calibrationStep: 0,
   calibrationDraft: [],
   calibrationOriginal: null,
+  calibrationOriginalSide: 'bottom',
+  calibrationStage: 'orientation',
   calibrationSelected: 0,
   // Offscreen
   procCanvas: null,
@@ -496,6 +520,7 @@ function loadSettings(){
     if(typeof j.trackMoves === 'boolean') S.trackMoves = j.trackMoves;
     if(typeof j.soundOn === 'boolean') S.soundOn = j.soundOn;
     if(typeof j.showMoveNum === 'boolean') S.showMoveNum = j.showMoveNum;
+    if(['top','right','bottom','left'].includes(j.blackSide)) S.blackSide = j.blackSide;
     if(j.selectedCamId) S.selectedCamId = j.selectedCamId;
   }catch(e){}
 }
@@ -513,6 +538,7 @@ function saveSettings(){
       trackMoves: S.trackMoves,
       soundOn: S.soundOn,
       showMoveNum: S.showMoveNum,
+      blackSide: S.blackSide,
       selectedCamId: S.selectedCamId,
     }));
   }catch(e){}
@@ -794,11 +820,23 @@ const CALIBRATION_LABELS = [
   ['③ 右下を合わせる','映像の交点をタップするか、下の矢印で動かします'],
   ['④ 左下を合わせる','映像の交点をタップするか、下の矢印で動かします'],
 ];
+const BLACK_SIDE_LABELS = {top:'画面上',right:'画面右',bottom:'画面下',left:'画面左'};
+function getOrientedCorners(corners=S.corners,side=S.blackSide){
+  if(!corners || corners.length!==4) return corners;
+  const order={bottom:[0,1,2,3],left:[1,2,3,0],top:[2,3,0,1],right:[3,0,1,2]}[side] || [0,1,2,3];
+  return order.map(i=>corners[i]);
+}
+function updateOrientationStatus(){
+  const el=$('orientationStatus');
+  if(el) el.textContent='黒番側が'+BLACK_SIDE_LABELS[S.blackSide];
+}
 function updateCalibrationUI(){
   const count = S.calibrationDraft.length;
   const ready = count === 4;
+  const choosingOrientation = S.calibrationStage === 'orientation';
+  $('calibPanel').classList.toggle('orientation', choosingOrientation);
   $('calibControls').classList.toggle('ready', ready);
-  $('calibAdjust').classList.toggle('show', S.calibrating && ready);
+  $('calibAdjust').classList.toggle('show', S.calibrating && ready && !choosingOrientation);
   $('calibUndo').disabled = false;
   document.querySelectorAll('#cornerSelect button').forEach(b=>{
     b.classList.toggle('active', +b.dataset.corner === S.calibrationSelected);
@@ -807,10 +845,12 @@ function updateCalibrationUI(){
   $('calibTitle').textContent = CALIBRATION_LABELS[S.calibrationSelected][0];
   $('calibHelp').textContent = CALIBRATION_LABELS[S.calibrationSelected][1];
 }
-function startCalibration(){
+function startCalibration(stage='orientation'){
   if(!S.videoEl || !S.videoEl.videoWidth){ toast('カメラが映ってから設定してください', true); return; }
   S.calibrating = true;
+  S.calibrationStage = stage;
   S.calibrationOriginal = S.corners ? S.corners.map(p=>({...p})) : null;
+  S.calibrationOriginalSide = S.blackSide;
   S.calibrationStep = 4;
   S.calibrationDraft = (S.calibrationOriginal || defaultCorners()).map(p=>({...p}));
   S.calibrationSelected = 0;
@@ -819,12 +859,23 @@ function startCalibration(){
   updateCalibrationUI();
   drawOverlay();
 }
+function selectBlackSide(side){
+  if(!BLACK_SIDE_LABELS[side]) return;
+  S.blackSide = side;
+  S.calibrationStage = 'corners';
+  updateOrientationStatus();
+  updateCalibrationUI();
+  drawOverlay();
+  toast('黒番側を'+BLACK_SIDE_LABELS[side]+'に設定しました');
+}
 function cancelCalibration(){
+  S.blackSide = S.calibrationOriginalSide;
   S.calibrating = false;
   S.calibrationDraft = [];
   S.draggingHandle = -1;
   $('camArea').classList.remove('calibrating');
   $('calibAdjust').classList.remove('show');
+  updateOrientationStatus();
   drawOverlay();
 }
 function isUsableQuad(q){
@@ -847,18 +898,22 @@ function finishCalibration(){
     toast('四隅が交差しています。左上から時計回りに選び直してください', true);
     return;
   }
+  const sideChanged = S.blackSide !== S.calibrationOriginalSide;
   S.corners = S.calibrationDraft.map(p=>({...p}));
   S.calibrating = false;
   S.calibrationDraft = [];
   S.draggingHandle = -1;
   $('camArea').classList.remove('calibrating');
   $('calibAdjust').classList.remove('show');
-  initDetectionState(S.committed);
+  if(sideChanged){ initDetectionState(); clearTracking(); S.revision++; }
+  else initDetectionState(S.committed);
   S.suspiciousFrames = 0;
   try{ localStorage.setItem(CALIBRATION_UI_KEY, '1'); }catch(e){}
   saveSettings();
+  saveGame();
+  updateOrientationStatus();
   drawOverlay();
-  toast('碁盤の位置を固定しました');
+  toast(sideChanged ? '向きと四隅を固定しました。盤面を読み直します' : '碁盤の位置を固定しました');
 }
 function nudgeCalibrationCorner(dx,dy){
   if(!S.calibrating || S.calibrationDraft.length !== 4) return;
@@ -888,14 +943,31 @@ function drawCalibrationMagnifier(ctx,ov,p){
   ctx.beginPath(); ctx.arc(cx,cy,half,0,Math.PI*2);
   ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.stroke();
 }
+function drawBlackSideIndicator(ctx,pts,side){
+  const edge={top:[0,1],right:[1,2],bottom:[3,2],left:[0,3]}[side] || [3,2];
+  const a=pts[edge[0]],b=pts[edge[1]];
+  if(!a||!b) return;
+  ctx.save();
+  ctx.strokeStyle='rgba(0,0,0,.86)'; ctx.lineWidth=10;
+  ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  ctx.strokeStyle='#f4d03f'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+  const x=(a.x+b.x)/2,y=(a.y+b.y)/2;
+  ctx.font='900 13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,.9)'; ctx.strokeText('黒番側',x,y);
+  ctx.fillStyle='#f4d03f'; ctx.fillText('黒番側',x,y);
+  ctx.restore();
+}
 function drawOverlay(){
   const ov = $('overlay');
   const ctx = ov.getContext('2d');
   ctx.clearRect(0,0,ov.width,ov.height);
   if(S.calibrating){
+    if(S.calibrationStage==='orientation') return;
     const pts = S.calibrationDraft.map(normToOverlay);
     if(pts.length===4 && isUsableQuad(S.calibrationDraft)){
-      const H = makeHomography(pts), N = S.size;
+      const gridPts=getOrientedCorners(S.calibrationDraft).map(normToOverlay);
+      const H = makeHomography(gridPts), N = S.size;
       ctx.strokeStyle='rgba(244,208,63,.26)'; ctx.lineWidth=1;
       for(let i=0;i<N;i++){
         const u=i/(N-1), a=H(u,0), b=H(u,1), c=H(0,u), d=H(1,u);
@@ -921,6 +993,7 @@ function drawOverlay(){
       ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(i+1),p.x,p.y);
     }
     if(pts.length===4) drawCalibrationMagnifier(ctx,ov,pts[S.calibrationSelected]);
+    if(pts.length===4) drawBlackSideIndicator(ctx,pts,S.blackSide);
     return;
   }
   if(!S.corners) return;
@@ -935,7 +1008,7 @@ function drawOverlay(){
   ctx.stroke();
   // Internal grid preview
   if(S.committed){
-    const H = makeHomography(pts);
+    const H = makeHomography(getOrientedCorners().map(normToOverlay));
     const N = S.size;
     ctx.strokeStyle = 'rgba(244,208,63,.18)';
     ctx.lineWidth = 1;
@@ -992,6 +1065,7 @@ function drawOverlay(){
     ctx.textBaseline = 'middle';
     ctx.fillText((i+1).toString(), p.x, p.y);
   }
+  drawBlackSideIndicator(ctx,pts,S.blackSide);
 }
 function findHandle(x,y){
   const corners = S.calibrating ? S.calibrationDraft : S.corners;
@@ -1109,7 +1183,7 @@ function detectFrame(){
   catch(e){ return; }
   const data = imgData.data;
   const W = cnv.width, H = cnv.height;
-  const cornersPx = S.corners.map(c=>({ x: c.x*W, y: c.y*H }));
+  const cornersPx = getOrientedCorners().map(c=>({ x: c.x*W, y: c.y*H }));
   const Hg = makeHomography(cornersPx);
   const N = S.size;
   // Estimate grid spacing in pixels
@@ -1918,6 +1992,7 @@ function checkSecure(){
 // ============================================================
 function init(){
   loadSettings();
+  updateOrientationStatus();
   S.procCanvas = document.createElement('canvas');
   S.procCanvas.width = PROC_W; S.procCanvas.height = PROC_W*0.75;
   S.procCtx = S.procCanvas.getContext('2d', { willReadFrequently: true });
@@ -1937,7 +2012,10 @@ function init(){
 
   // Broadcaster controls
   $('bExit').addEventListener('click', exitBroadcast);
-  $('btnCalibrate').addEventListener('click', startCalibration);
+  $('btnCalibrate').addEventListener('click', ()=>startCalibration('orientation'));
+  document.querySelectorAll('#orientationPicker button[data-side]').forEach(b=>{
+    b.addEventListener('click', ()=>selectBlackSide(b.dataset.side));
+  });
   $('calibCancel').addEventListener('click', cancelCalibration);
   $('calibDone').addEventListener('click', finishCalibration);
   $('calibUndo').addEventListener('click', ()=>{
@@ -2008,19 +2086,10 @@ function init(){
     toast((c==='B'?'黒':'白') + 'のパスを記録しました');
   });
   $('btnReset').addEventListener('click', ()=>{
-    startCalibration();
+    startCalibration('corners');
   });
   $('btnRotate').addEventListener('click', ()=>{
-    if(!S.corners) return;
-    // Rotate corner labels 90° CW: TL←BL, TR←TL, BR←TR, BL←BR
-    S.corners = [S.corners[3], S.corners[0], S.corners[1], S.corners[2]];
-    initDetectionState();
-    clearTracking();
-    S.revision++;
-    saveSettings();
-    saveGame();
-    drawOverlay();
-    toast('盤を90°回転しました');
+    startCalibration('orientation');
   });
   $('btnClearMoves').addEventListener('click', ()=>{
     clearTracking();
