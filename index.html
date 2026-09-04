@@ -58,6 +58,9 @@ a{color:#7cb7ff}
 .calibLaunch strong{display:block;color:#f4d03f;font-size:.9rem}
 .calibLaunch small{display:block;color:#a9b2ad;font-size:.72rem;line-height:1.4;margin-top:2px}
 .calibLaunch button{min-height:44px;padding:0 16px;border:none;border-radius:9px;background:#f4d03f;color:#171717;font-weight:800;white-space:nowrap}
+.calibLaunch .launchBtns{display:flex;flex-direction:column;gap:6px}
+.calibLaunch #btnRemoteArm{background:rgba(255,255,255,.09);color:#fff;border:1px solid rgba(255,255,255,.2);font-size:.72rem}
+.calibLaunch #btnRemoteArm.armed{background:#247a49;border-color:#51d887}
 .calibPanel{position:absolute;inset:0;z-index:10;display:none;flex-direction:column;pointer-events:none;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent 30%,transparent 68%,rgba(0,0,0,.82))}
 .cam-area.calibrating .calibPanel{display:flex}
 .cam-area.calibrating #overlay{z-index:9}
@@ -150,6 +153,18 @@ a{color:#7cb7ff}
 .vStatus.disconnected{color:#ff6b6b}
 .vMeta{display:flex;gap:14px;font-size:.72rem;color:#6b7c75}
 .vMeta b{color:#f4d03f}
+.remoteCalib{position:fixed;inset:0;z-index:1500;display:none;flex-direction:column;background:#0b0d0c;color:#fff;padding:max(10px,env(safe-area-inset-top)) 12px max(10px,env(safe-area-inset-bottom));gap:10px;overflow:auto}
+.remoteCalib.show{display:flex}
+.remoteHead{display:flex;align-items:center;gap:10px}.remoteHead strong{color:#f4d03f}.remoteHead button{margin-left:auto;padding:9px 14px;border:1px solid #555;border-radius:8px;background:#222;color:#fff}
+.remoteHelp{font-size:.8rem;color:#bdc6c1;line-height:1.45}
+.remoteSides,.remoteCorners,.remoteNudge{display:grid;gap:7px}.remoteSides,.remoteCorners,.remoteNudge{grid-template-columns:repeat(4,1fr)}
+.remoteSides button,.remoteCorners button,.remoteNudge button,.remoteApply{min-height:44px;border:1px solid rgba(255,255,255,.22);border-radius:9px;background:#202422;color:#fff;font-weight:800}
+.remoteSides button.active,.remoteCorners button.active{background:#f4d03f;color:#161616;border-color:#f4d03f}
+.remoteCanvasWrap{position:relative;align-self:center;width:auto;max-width:min(100%,980px);background:#000;border-radius:10px;overflow:hidden;line-height:0}
+.remoteCanvasWrap img{display:block;width:auto;height:auto;max-width:100%;max-height:62vh}
+.remoteCanvasWrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.remoteCornerTools{display:none;gap:7px}.remoteCornerTools.show{display:grid}
+.remoteApply{background:#f4d03f;color:#161616;border:none;font-size:1rem}
 
 /* ============================================================
    TOAST
@@ -225,7 +240,10 @@ a{color:#7cb7ff}
         <strong>碁盤の位置</strong>
         <small>向き: <span id="orientationStatus">黒番側が画面下</span> ・ 横や斜め撮影にも対応</small>
       </div>
-      <button id="btnCalibrate" type="button">碁盤を合わせる</button>
+      <div class="launchBtns">
+        <button id="btnCalibrate" type="button">碁盤を合わせる</button>
+        <button id="btnRemoteArm" type="button">PC調整を5分許可</button>
+      </div>
     </div>
     <div class="cam-area" id="camArea">
       <video id="cam" autoplay playsinline muted></video>
@@ -389,7 +407,22 @@ a{color:#7cb7ff}
       <button id="vSoundBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font-size:.78rem">🔇 音オフ</button>
       <button id="vNumBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font-size:.78rem">手番表示 オフ</button>
       <button id="vSgfBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(244,208,63,.5);background:rgba(244,208,63,.15);color:#f4d03f;font-size:.78rem">SGFダウンロード</button>
+      <button id="vRemoteCalibBtn" style="padding:6px 14px;border-radius:18px;border:1px solid rgba(124,183,255,.5);background:rgba(124,183,255,.12);color:#9dcbff;font-size:.78rem">PCで位置合わせ</button>
     </div>
+  </div>
+</section>
+
+<section class="remoteCalib" id="remoteCalibModal" aria-label="PC位置合わせ">
+  <div class="remoteHead"><strong>PCで位置合わせ</strong><button id="remoteClose" type="button">閉じる</button></div>
+  <div class="remoteHelp" id="remoteHelp">最初に、静止画のどちら側に黒番が座っているか選んでください。</div>
+  <div class="remoteSides" id="remoteSides">
+    <button type="button" data-side="top">↑ 画面上</button><button type="button" data-side="right">画面右 →</button><button type="button" data-side="bottom">↓ 画面下</button><button type="button" data-side="left">← 画面左</button>
+  </div>
+  <div class="remoteCanvasWrap"><img id="remoteImg" alt="スマホから受信した碁盤の静止画"><canvas id="remoteOverlay"></canvas></div>
+  <div class="remoteCornerTools" id="remoteCornerTools">
+    <div class="remoteCorners" id="remoteCorners"><button type="button" data-corner="0">① 画面左上</button><button type="button" data-corner="1">② 画面右上</button><button type="button" data-corner="2">③ 画面右下</button><button type="button" data-corner="3">④ 画面左下</button></div>
+    <div class="remoteNudge"><button type="button" data-dx="-1" data-dy="0">←</button><button type="button" data-dx="0" data-dy="-1">↑</button><button type="button" data-dx="0" data-dy="1">↓</button><button type="button" data-dx="1" data-dy="0">→</button></div>
+    <button class="remoteApply" id="remoteApply" type="button">この設定をスマホへ送る</button>
   </div>
 </section>
 
@@ -469,6 +502,8 @@ const S = {
   revision: 0,
   lastSentRevision: -1,
   wakeLock: null,
+  remoteCalibUntil: 0,
+  remoteCalibTokens: new Map(),
   // UI
   draggingHandle: -1,
   calibrating: false,
@@ -483,6 +518,10 @@ const S = {
   // Offscreen
   procCanvas: null,
   procCtx: null,
+};
+const R = {
+  image:null, pendingCorners:null, corners:[], side:null, selected:0,
+  dragging:-1, token:null, size:19,
 };
 
 // ============================================================
@@ -792,6 +831,7 @@ function resizeOverlay(){
   }
 }
 window.addEventListener('resize', ()=>{
+  if($('remoteCalibModal').classList.contains('show')) drawRemoteOverlay();
   if(S.mode==='broadcast'){ resizeOverlay(); drawBoardCanvas('boardB'); }
   else if(S.mode==='view' && S.vLatestState){
     drawBoardCanvas('boardV', {
@@ -1672,6 +1712,53 @@ function generateSGF(){
 // ============================================================
 // PEERJS BROADCASTING
 // ============================================================
+function makeRemoteToken(){
+  const a=new Uint8Array(16); crypto.getRandomValues(a);
+  return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');
+}
+function armRemoteCalibration(){
+  S.remoteCalibUntil=Date.now()+5*60*1000;
+  S.remoteCalibTokens.clear();
+  const b=$('btnRemoteArm'); b.classList.add('armed'); b.textContent='PC調整を許可中';
+  toast('5分間、接続したPCから静止画で調整できます');
+  setTimeout(()=>{
+    if(Date.now()>=S.remoteCalibUntil){ b.classList.remove('armed'); b.textContent='PC調整を5分許可'; }
+  },5*60*1000+500);
+}
+function captureCalibrationStill(){
+  const v=S.videoEl;
+  if(!v||!v.videoWidth) return null;
+  const w=Math.min(1100,v.videoWidth),h=Math.round(w*v.videoHeight/v.videoWidth);
+  const c=document.createElement('canvas'); c.width=w;c.height=h;
+  c.getContext('2d').drawImage(v,0,0,w,h);
+  return c.toDataURL('image/jpeg',.72);
+}
+function validRemoteCorners(c){
+  return Array.isArray(c)&&c.length===4&&c.every(p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1)&&isUsableQuad(c);
+}
+function handleHostPeerMessage(conn,data){
+  if(!data||typeof data!=='object') return;
+  if(data.type==='calib-request'){
+    if(Date.now()>S.remoteCalibUntil){ try{conn.send({type:'calib-denied',reason:'スマホ側で「PC調整を5分許可」を押してください'});}catch(e){} return; }
+    const image=captureCalibrationStill();
+    if(!image){ try{conn.send({type:'calib-denied',reason:'スマホのカメラ画像を取得できません'});}catch(e){} return; }
+    const token=makeRemoteToken(); S.remoteCalibTokens.set(conn,token);
+    try{ conn.send({type:'calib-snapshot',image,corners:S.corners,token,size:S.size}); toast('PCへ静止画を1枚送りました'); }catch(e){}
+  } else if(data.type==='calib-apply'){
+    const token=S.remoteCalibTokens.get(conn);
+    if(Date.now()>S.remoteCalibUntil||!token||data.token!==token) return;
+    if(!BLACK_SIDE_LABELS[data.side]||!validRemoteCorners(data.corners)) return;
+    S.blackSide=data.side; S.orientationConfirmed=true;
+    S.corners=data.corners.map(p=>({x:p.x,y:p.y}));
+    initDetectionState(); clearTracking(); S.suspiciousFrames=0; S.revision++;
+    saveSettings(); saveGame(); drawOverlay(); drawBoardCanvas('boardB'); broadcastState(true);
+    S.remoteCalibTokens.delete(conn); S.remoteCalibUntil=0;
+    $('btnRemoteArm').classList.remove('armed'); $('btnRemoteArm').textContent='PC調整を5分許可';
+    updateOrientationStatus();
+    try{conn.send({type:'calib-applied'});}catch(e){}
+    toast('PCから向きと四隅を受信しました');
+  }
+}
 function setLiveBadge(state){
   const b = $('liveBadge');
   b.classList.remove('live','connecting');
@@ -1689,6 +1776,7 @@ function startPeerHost(forceNewId){
   }
   if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
   S.conns = [];
+  S.remoteCalibTokens.clear();
   $('viewerCount').textContent = '0';
   S.lastSentRevision = -1;
   let stored = null;
@@ -1726,11 +1814,14 @@ function startPeerHost(forceNewId){
       // Send initial snapshot
       sendStateTo(conn);
     });
+    conn.on('data', data=>handleHostPeerMessage(conn,data));
     conn.on('close', ()=>{
+      S.remoteCalibTokens.delete(conn);
       S.conns = S.conns.filter(c=>c!==conn);
       $('viewerCount').textContent = S.conns.length;
     });
     conn.on('error', ()=>{
+      S.remoteCalibTokens.delete(conn);
       S.conns = S.conns.filter(c=>c!==conn);
       $('viewerCount').textContent = S.conns.length;
     });
@@ -1796,6 +1887,40 @@ function broadcastState(force){
 // ============================================================
 // PEERJS VIEWING
 // ============================================================
+function drawRemoteOverlay(){
+  const c=$('remoteOverlay'),img=$('remoteImg'),r=img.getBoundingClientRect();
+  if(!r.width||!r.height) return;
+  const dpr=Math.min(devicePixelRatio||1,2); c.width=Math.round(r.width*dpr);c.height=Math.round(r.height*dpr);
+  const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+  if(!R.side||R.corners.length!==4) return;
+  const pts=R.corners.map(p=>({x:p.x*c.width,y:p.y*c.height}));
+  const logical=getOrientedCorners(R.corners,R.side).map(p=>({x:p.x*c.width,y:p.y*c.height}));
+  const H=makeHomography(logical),N=R.size||19;
+  ctx.strokeStyle='rgba(244,208,63,.3)';ctx.lineWidth=1;
+  for(let i=0;i<N;i++){const u=i/(N-1),a=H(u,0),b=H(u,1),d=H(0,u),e=H(1,u);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.beginPath();ctx.moveTo(d.x,d.y);ctx.lineTo(e.x,e.y);ctx.stroke();}
+  ctx.strokeStyle='#f4d03f';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<4;i++)ctx.lineTo(pts[i].x,pts[i].y);ctx.closePath();ctx.stroke();
+  for(let i=0;i<4;i++){const p=pts[i];ctx.beginPath();ctx.arc(p.x,p.y,18*dpr,0,Math.PI*2);ctx.fillStyle=i===R.selected?'#fff':'#f4d03f';ctx.fill();ctx.fillStyle='#111';ctx.font=`900 ${14*dpr}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(i+1),p.x,p.y);}
+  drawBlackSideIndicator(ctx,pts,R.side);
+}
+function openRemoteSnapshot(data){
+  if(typeof data.image!=='string'||!data.image.startsWith('data:image/jpeg;base64,')||data.image.length>2500000||!/^([a-f0-9]{32})$/.test(data.token||'')){toast('静止画データが不正です',true);return;}
+  R.token=data.token;R.size=[9,13,19].includes(+data.size)?+data.size:19;R.pendingCorners=validRemoteCorners(data.corners)?data.corners.map(p=>({...p})):defaultCorners();R.corners=[];R.side=null;R.selected=0;
+  $('remoteCornerTools').classList.remove('show');document.querySelectorAll('#remoteSides button').forEach(b=>b.classList.remove('active'));
+  $('remoteHelp').textContent='最初に、静止画のどちら側に黒番が座っているか選んでください。';
+  $('remoteCalibModal').classList.add('show');
+  const img=$('remoteImg');img.onload=drawRemoteOverlay;img.src=data.image;
+}
+function closeRemoteCalibration(){
+  $('remoteCalibModal').classList.remove('show');$('remoteImg').removeAttribute('src');
+  R.image=null;R.pendingCorners=null;R.corners=[];R.side=null;R.dragging=-1;R.token=null;
+}
+function selectRemoteSide(side){
+  if(!BLACK_SIDE_LABELS[side]||!R.pendingCorners)return;R.side=side;R.selected=0;R.corners=R.pendingCorners.map(p=>({...p}));
+  document.querySelectorAll('#remoteSides button').forEach(b=>b.classList.toggle('active',b.dataset.side===side));
+  document.querySelectorAll('#remoteCorners button').forEach(b=>b.classList.toggle('active',+b.dataset.corner===0));
+  $('remoteCornerTools').classList.add('show');$('remoteHelp').textContent='四隅はPC画面基準です。角を選び、画像クリック・ドラッグ・矢印で合わせます。';drawRemoteOverlay();
+}
+function nudgeRemote(dx,dy){if(R.corners.length!==4)return;const p=R.corners[R.selected];p.x=clamp(p.x+dx*.003,0,1);p.y=clamp(p.y+dy*.003,0,1);drawRemoteOverlay();}
 function startPeerViewer(shortId){
   shortId = normalizeRoomId(shortId);
   if(!shortId){ toast('部屋IDは英数字6文字で入力してください', true); showScreen('modeSelect'); return; }
@@ -1830,6 +1955,9 @@ function connectToHost(shortId){
     setVStatus('接続済み', 'connected');
   });
   conn.on('data', (data)=>{
+    if(data&&data.type==='calib-snapshot'){openRemoteSnapshot(data);return;}
+    if(data&&data.type==='calib-denied'){toast(data.reason||'PC調整は許可されていません',true);return;}
+    if(data&&data.type==='calib-applied'){closeRemoteCalibration();toast('スマホへ設定を反映しました');return;}
     if(data && data.type === 'state'){
       if(!isValidPeerState(data)){
         setVStatus('受信データが不正なため破棄しました', 'disconnected');
@@ -1990,6 +2118,7 @@ function enterView(shortId){
   drawBoardCanvas('boardV', { size: S.size, committed: null });
 }
 function exitView(){
+  closeRemoteCalibration();
   if(S.conn){ try{ S.conn.close(); }catch(e){} S.conn = null; }
   if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
   clearTimeout(S.reconnectTimer);
@@ -2063,6 +2192,7 @@ function init(){
   // Broadcaster controls
   $('bExit').addEventListener('click', exitBroadcast);
   $('btnCalibrate').addEventListener('click', ()=>startCalibration('orientation'));
+  $('btnRemoteArm').addEventListener('click', armRemoteCalibration);
   document.querySelectorAll('#orientationPicker button[data-side]').forEach(b=>{
     b.addEventListener('click', ()=>selectBlackSide(b.dataset.side));
   });
@@ -2223,6 +2353,56 @@ function init(){
 
   // Viewer controls
   $('vExit').addEventListener('click', exitView);
+  $('vRemoteCalibBtn').addEventListener('click', ()=>{
+    if(!S.conn || !S.conn.open){ toast('スマホとの接続を確認してください', true); return; }
+    S.conn.send({type:'calib-request'});
+    toast('スマホへ静止画を要求しました');
+  });
+  $('remoteClose').addEventListener('click', closeRemoteCalibration);
+  document.querySelectorAll('#remoteSides button[data-side]').forEach(b=>{
+    b.addEventListener('click', ()=>selectRemoteSide(b.dataset.side));
+  });
+  document.querySelectorAll('#remoteCorners button[data-corner]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      R.selected=+b.dataset.corner;
+      document.querySelectorAll('#remoteCorners button').forEach(x=>x.classList.toggle('active',x===b));
+      drawRemoteOverlay();
+    });
+  });
+  document.querySelectorAll('.remoteNudge button').forEach(b=>{
+    let delayTimer=null,repeatTimer=null;
+    const move=()=>nudgeRemote(+b.dataset.dx,+b.dataset.dy);
+    const stop=()=>{clearTimeout(delayTimer);clearInterval(repeatTimer);delayTimer=repeatTimer=null;};
+    b.addEventListener('pointerdown',e=>{e.preventDefault();move();delayTimer=setTimeout(()=>{repeatTimer=setInterval(move,80);},350);});
+    b.addEventListener('pointerup',stop);b.addEventListener('pointercancel',stop);b.addEventListener('pointerleave',stop);
+    b.addEventListener('click',e=>{if(e.detail===0)move();});
+  });
+  $('remoteApply').addEventListener('click', ()=>{
+    if(!R.side){toast('先に黒番側を選んでください',true);return;}
+    if(!validRemoteCorners(R.corners)){toast('四隅の形を確認してください',true);return;}
+    if(!R.token||!S.conn||!S.conn.open){toast('スマホとの接続が切れています',true);return;}
+    S.conn.send({type:'calib-apply',token:R.token,side:R.side,corners:R.corners.map(p=>({...p}))});
+    $('remoteHelp').textContent='スマホへ設定を送信中です…';
+  });
+  const remoteOv=$('remoteOverlay');
+  const remotePoint=e=>{
+    const r=remoteOv.getBoundingClientRect();
+    return {x:clamp((e.clientX-r.left)/r.width,0,1),y:clamp((e.clientY-r.top)/r.height,0,1),radius:28/Math.max(r.width,r.height)};
+  };
+  remoteOv.addEventListener('pointerdown',e=>{
+    if(!R.side||R.corners.length!==4)return;
+    e.preventDefault();const p=remotePoint(e);let best=-1,bestD=Infinity;
+    R.corners.forEach((q,i)=>{const d=Math.hypot(q.x-p.x,q.y-p.y);if(d<bestD){bestD=d;best=i;}});
+    R.selected=bestD<=p.radius?best:R.selected;
+    if(bestD>p.radius)R.corners[R.selected]={x:p.x,y:p.y};
+    R.dragging=R.selected;remoteOv.setPointerCapture(e.pointerId);
+    document.querySelectorAll('#remoteCorners button').forEach(x=>x.classList.toggle('active',+x.dataset.corner===R.selected));drawRemoteOverlay();
+  });
+  remoteOv.addEventListener('pointermove',e=>{
+    if(R.dragging<0)return;e.preventDefault();const p=remotePoint(e);R.corners[R.dragging]={x:p.x,y:p.y};drawRemoteOverlay();
+  });
+  const stopRemoteDrag=e=>{if(R.dragging>=0){R.dragging=-1;try{remoteOv.releasePointerCapture(e.pointerId);}catch(_){}}};
+  remoteOv.addEventListener('pointerup',stopRemoteDrag);remoteOv.addEventListener('pointercancel',stopRemoteDrag);
   function syncViewerToggleLabels(){
     $('vSoundBtn').textContent = (S.soundOn ? '🔔 音オン' : '🔇 音オフ');
     $('vNumBtn').textContent = '手数表示 ' + (S.showMoveNum ? 'オン' : 'オフ');
