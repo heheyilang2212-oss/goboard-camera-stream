@@ -164,6 +164,7 @@ a{color:#7cb7ff}
 .remoteSides button,.remoteCorners button,.remoteNudge button,.remoteApply{min-height:44px;border:1px solid rgba(255,255,255,.22);border-radius:9px;background:#202422;color:#fff;font-weight:800}
 .remoteSides button.active,.remoteCorners button.active{background:#f4d03f;color:#161616;border-color:#f4d03f}
 .remoteLoupeHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.remoteCornerHead{display:flex;align-items:center;justify-content:space-between;gap:8px}.remoteCornerHead button{min-height:34px;padding:4px 10px;border:1px solid rgba(124,183,255,.5);border-radius:8px;background:rgba(124,183,255,.12);color:#9dcbff;font-weight:800;font-size:.72rem}.remoteCornerHead button:disabled{opacity:.5;cursor:wait}
 .remoteZoomBtns{display:flex;gap:4px}.remoteZoomBtns button{min-width:38px;min-height:30px;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:#202422;color:#cbd3cf;font-weight:800;font-size:.72rem}.remoteZoomBtns button.active{background:#f4d03f;color:#161616;border-color:#f4d03f}
 .remoteLoupe{height:clamp(110px,18vh,150px);border:1px solid rgba(244,208,63,.42);border-radius:8px;background:#000;overflow:hidden}
 .remoteLoupe canvas{display:block;width:100%;height:100%}
@@ -445,7 +446,7 @@ a{color:#7cb7ff}
       <button type="button" data-side="top">↑ 画面上</button><button type="button" data-side="right">画面右 →</button><button type="button" data-side="bottom">↓ 画面下</button><button type="button" data-side="left">← 画面左</button>
     </div>
     <div class="remoteCornerTools" id="remoteCornerTools">
-      <div class="remoteSectionTitle">2. 調整する隅</div>
+      <div class="remoteCornerHead"><div class="remoteSectionTitle">2. 調整する隅</div><button id="remoteAutoCorners" type="button">自動で探し直す</button></div>
       <div class="remoteCorners" id="remoteCorners"><button type="button" data-corner="0">左上</button><button type="button" data-corner="1">右上</button><button type="button" data-corner="2">右下</button><button type="button" data-corner="3">左下</button></div>
       <div class="remoteLoupeHead"><div class="remoteSectionTitle">選択中の隅を拡大</div><div class="remoteZoomBtns" id="remoteZoomBtns"><button type="button" data-zoom="3">3×</button><button type="button" data-zoom="5" class="active" aria-pressed="true">5×</button><button type="button" data-zoom="8">8×</button></div></div>
       <div class="remoteLoupe"><canvas id="remoteLoupe" aria-label="選択した隅の拡大表示"></canvas></div>
@@ -551,7 +552,7 @@ const S = {
 };
 const R = {
   image:null, pendingCorners:null, corners:[], side:null, selected:0,
-  dragging:-1, token:null, size:19, zoom:5, applyTimer:null,
+  dragging:-1, token:null, size:19, zoom:5, applyTimer:null, autoBusy:false,
 };
 
 // ============================================================
@@ -1931,6 +1932,69 @@ function broadcastState(force){
 // ============================================================
 // PEERJS VIEWING
 // ============================================================
+function estimateRemoteCorners(img,seed){
+  const scale=Math.min(1,420/img.naturalWidth),w=Math.max(80,Math.round(img.naturalWidth*scale)),h=Math.max(60,Math.round(img.naturalHeight*scale));
+  const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,w,h);
+  const px=ctx.getImageData(0,0,w,h).data,gray=new Float32Array(w*h);
+  for(let i=0,j=0;i<px.length;i+=4,j++)gray[j]=px[i]*.299+px[i+1]*.587+px[i+2]*.114;
+  const sample=(x,y)=>{
+    x=clamp(x,0,w-1);y=clamp(y,0,h-1);const x0=Math.floor(x),y0=Math.floor(y),x1=Math.min(w-1,x0+1),y1=Math.min(h-1,y0+1),fx=x-x0,fy=y-y0;
+    return gray[y0*w+x0]*(1-fx)*(1-fy)+gray[y0*w+x1]*fx*(1-fy)+gray[y1*w+x0]*(1-fx)*fy+gray[y1*w+x1]*fx*fy;
+  };
+  const score=q=>{
+    if(!isUsableQuad(q))return -1e9;
+    const H=makeHomography(q.map(p=>({x:p.x*(w-1),y:p.y*(h-1)}))),N=R.size||19,d=.28/(N-1),e=.045/(N-1);let total=0,count=0;
+    const at=(u,v)=>{const p=H(u,v);return sample(p.x,p.y);};
+    for(let i=0;i<N;i++)for(let j=0;j<N-1;j++){
+      const u=i/(N-1),v=(j+.5)/(N-1),line=Math.min(at(u,v),at(clamp(u-e,0,1),v),at(clamp(u+e,0,1),v));
+      const near=i===0?at(u+d,v):i===N-1?at(u-d,v):(at(u-d,v)+at(u+d,v))/2;total+=clamp(near-line,-30,30);count++;
+    }
+    for(let j=0;j<N;j++)for(let i=0;i<N-1;i++){
+      const u=(i+.5)/(N-1),v=j/(N-1),line=Math.min(at(u,v),at(u,clamp(v-e,0,1)),at(u,clamp(v+e,0,1)));
+      const near=j===0?at(u,v+d):j===N-1?at(u,v-d):(at(u,v-d)+at(u,v+d))/2;total+=clamp(near-line,-30,30);count++;
+    }
+    return total/count;
+  };
+  const seeds=[];
+  if(validRemoteCorners(seed))seeds.push(seed.map(p=>({...p})));
+  seeds.push(defaultCorners(),[{x:.1,y:.1},{x:.9,y:.1},{x:.9,y:.9},{x:.1,y:.9}],[{x:.27,y:.22},{x:.73,y:.22},{x:.73,y:.78},{x:.27,y:.78}]);
+  let best=null,bestScore=-1e9;
+  for(const start of seeds){
+    let q=start.map(p=>({...p})),s=score(q);
+    for(const step of [.08,.045,.025,.014,.008,.004])for(let pass=0;pass<2;pass++)for(let k=0;k<4;k++){
+      let local=q,localScore=s;
+      for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[1,1],[-1,1]]){
+        const candidate=q.map(p=>({...p}));candidate[k].x=clamp(candidate[k].x+dx*step,.015,.985);candidate[k].y=clamp(candidate[k].y+dy*step,.015,.985);
+        const cs=score(candidate);if(cs>localScore){local=candidate;localScore=cs;}
+      }
+      q=local;s=localScore;
+    }
+    if(s>bestScore){best=q;bestScore=s;}
+  }
+  return {corners:best,score:bestScore,confident:bestScore>1.6};
+}
+function setRemoteAutoBusy(busy){
+  R.autoBusy=busy;const b=$('remoteAutoCorners');b.disabled=busy;b.textContent=busy?'探索中…':'自動で探し直す';
+  document.querySelectorAll('#remoteSides button').forEach(x=>x.disabled=busy);
+}
+function autoFindRemoteCorners(initial=false){
+  const img=$('remoteImg');if(!img.naturalWidth||R.autoBusy)return;
+  const requestToken=R.token,seed=R.corners.length===4?R.corners:R.pendingCorners;setRemoteAutoBusy(true);
+  $('remoteHelp').textContent='格子線から四隅の候補を探しています…';
+  setTimeout(()=>{
+    if(R.token!==requestToken)return;
+    try{
+      const result=estimateRemoteCorners(img,seed);
+      if(result.confident&&validRemoteCorners(result.corners)){
+        R.pendingCorners=result.corners.map(p=>({...p}));if(R.side)R.corners=R.pendingCorners.map(p=>({...p}));
+        $('remoteHelp').textContent=R.side?'四隅の候補を置きました。拡大窓で確認して必要なら直してください。':'四隅の候補を置きました。次に黒番の方向を選んでください。';
+      }else{
+        $('remoteHelp').textContent=initial?'自動検出が難しい画像です。黒番の方向を選び、四隅を手動で合わせてください。':'候補を見つけられませんでした。現在の位置をそのまま使います。';
+      }
+      setRemoteAutoBusy(false);layoutRemoteStage();
+    }catch(e){setRemoteAutoBusy(false);$('remoteHelp').textContent='自動検出に失敗しました。四隅は手動で合わせられます。';}
+  },40);
+}
 function layoutRemoteStage(){
   const area=$('remoteCanvasArea'),stage=$('remoteCanvasWrap'),img=$('remoteImg');
   if(!img.naturalWidth||!img.naturalHeight)return;
@@ -1999,14 +2063,14 @@ function openRemoteSnapshot(data){
   R.token=data.token;R.size=[9,13,19].includes(+data.size)?+data.size:19;R.pendingCorners=validRemoteCorners(data.corners)?data.corners.map(p=>({...p})):defaultCorners();R.corners=[];R.side=null;R.selected=0;
   $('remoteCornerTools').classList.remove('show');document.querySelectorAll('#remoteSides button').forEach(b=>b.classList.remove('active'));
   $('remoteHelp').textContent='最初に、静止画のどちら側に黒番が座っているか選んでください。';
-  clearTimeout(R.applyTimer);setRemoteApplying(false);
+  clearTimeout(R.applyTimer);setRemoteApplying(false);setRemoteAutoBusy(false);
   $('remoteCalibModal').classList.add('show');
-  const img=$('remoteImg');img.onload=()=>requestAnimationFrame(layoutRemoteStage);img.onerror=()=>{closeRemoteCalibration();toast('静止画を表示できませんでした。もう一度お試しください',true);};img.src=data.image;
+  const img=$('remoteImg');img.onload=()=>requestAnimationFrame(()=>{layoutRemoteStage();autoFindRemoteCorners(true);});img.onerror=()=>{closeRemoteCalibration();toast('静止画を表示できませんでした。もう一度お試しください',true);};img.src=data.image;
 }
 function closeRemoteCalibration(){
-  clearTimeout(R.applyTimer);R.applyTimer=null;setRemoteApplying(false);
+  clearTimeout(R.applyTimer);R.applyTimer=null;setRemoteApplying(false);setRemoteAutoBusy(false);
   $('remoteCalibModal').classList.remove('show');$('remoteImg').removeAttribute('src');
-  R.image=null;R.pendingCorners=null;R.corners=[];R.side=null;R.dragging=-1;R.token=null;
+  R.image=null;R.pendingCorners=null;R.corners=[];R.side=null;R.dragging=-1;R.token=null;R.autoBusy=false;
 }
 function selectRemoteSide(side){
   if(!BLACK_SIDE_LABELS[side]||!R.pendingCorners)return;R.side=side;R.selected=0;R.corners=R.pendingCorners.map(p=>({...p}));
@@ -2466,6 +2530,7 @@ function init(){
       drawRemoteOverlay();
     });
   });
+  $('remoteAutoCorners').addEventListener('click',()=>autoFindRemoteCorners(false));
   document.querySelectorAll('#remoteZoomBtns button[data-zoom]').forEach(b=>{
     b.setAttribute('aria-pressed',b.classList.contains('active')?'true':'false');
     b.addEventListener('click',()=>{
