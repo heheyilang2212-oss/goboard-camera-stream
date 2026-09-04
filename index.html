@@ -53,6 +53,36 @@ a{color:#7cb7ff}
 .cam-area{position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:4/3;flex-shrink:0}
 .cam-area video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
 .cam-area canvas#overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.calibLaunch{display:flex;align-items:center;gap:8px;padding:10px 12px;background:linear-gradient(135deg,rgba(244,208,63,.18),rgba(244,208,63,.06));border:1px solid rgba(244,208,63,.45);border-radius:10px;flex-shrink:0}
+.calibLaunch .copy{min-width:0;flex:1}
+.calibLaunch strong{display:block;color:#f4d03f;font-size:.9rem}
+.calibLaunch small{display:block;color:#a9b2ad;font-size:.72rem;line-height:1.4;margin-top:2px}
+.calibLaunch button{min-height:44px;padding:0 16px;border:none;border-radius:9px;background:#f4d03f;color:#171717;font-weight:800;white-space:nowrap}
+.calibPanel{position:absolute;inset:0;z-index:10;display:none;flex-direction:column;pointer-events:none;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent 30%,transparent 68%,rgba(0,0,0,.82))}
+.cam-area.calibrating .calibPanel{display:flex}
+.cam-area.calibrating #overlay{z-index:9}
+.calibGuide{position:relative;z-index:10;margin:10px;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:rgba(12,14,13,.92);border:1px solid rgba(244,208,63,.55);box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.calibStep{width:38px;height:38px;display:grid;place-items:center;border-radius:50%;background:#f4d03f;color:#141414;font-weight:900;font-size:1.1rem;flex:none}
+.calibGuide .text{min-width:0}
+.calibGuide strong{display:block;font-size:.9rem;color:#fff}
+.calibGuide small{display:block;margin-top:2px;color:#c9cfcc;font-size:.72rem;line-height:1.35}
+.calibControls{position:relative;z-index:10;margin:auto 10px 10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;pointer-events:auto}
+.calibControls button{min-height:46px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(15,17,16,.92);color:#fff;font-weight:800}
+.calibControls button:disabled{opacity:.38}
+.calibControls .confirm{grid-column:1/-1;background:#f4d03f;color:#151515;border-color:#f4d03f;display:none}
+.calibControls.ready .confirm{display:block}
+.calibControls.ready #calibUndo,.calibControls.ready #calibCancel{min-height:40px}
+.calibAdjust{display:none;padding:10px;border-radius:10px;background:#17191a;border:1px solid rgba(244,208,63,.35);flex-shrink:0}
+.calibAdjust.show{display:block}
+.calibAdjustHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.calibAdjustHead strong{font-size:.84rem;color:#f4d03f}
+.calibAdjustHead span{font-size:.7rem;color:#9ca6a1}
+.cornerSelect{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.cornerSelect button,.nudgeBtns button{min-height:44px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:rgba(255,255,255,.06);color:#fff;font-weight:800}
+.cornerSelect button.active{background:#f4d03f;border-color:#f4d03f;color:#171717}
+.nudgeBtns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.nudgeBtns button{font-size:1.25rem;background:rgba(244,208,63,.1);border-color:rgba(244,208,63,.32)}
+.nudgeBtns button:active{background:#f4d03f;color:#171717;transform:scale(.96)}
 .cam-area .camHint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.7);padding:10px 16px;border-radius:8px;font-size:.78rem;color:#f4d03f;text-align:center;line-height:1.5;max-width:80%;display:none}
 .cam-area .camHint button{margin-top:8px;padding:6px 14px;border-radius:18px;border:1px solid #f4d03f;background:transparent;color:#f4d03f;font-weight:700;font-size:.78rem;cursor:pointer;pointer-events:auto}
 .cam-area.noCam .camHint{display:block}
@@ -123,12 +153,26 @@ a{color:#7cb7ff}
    ============================================================ */
 @media (min-width:760px){
   .bMain{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto;gap:10px;padding:12px;align-content:start}
+  .calibLaunch{grid-column:1/-1}
   .cam-area{aspect-ratio:4/3}
   .board-area{height:100%}
   .share{grid-column:1/-1}
   .settings{grid-column:1/-1}
   .actions{grid-column:1/-1}
   .statusBar{grid-column:1/-1}
+}
+@media (max-width:759px){
+  .hdr{padding:max(8px,env(safe-area-inset-top)) 8px 8px;gap:5px}
+  .hdr .back{padding:7px;min-width:40px;min-height:40px}
+  .hdr .title{font-size:.82rem}
+  .hdr select{max-width:112px;min-height:38px}
+  .hdr .sizeBtns button{min-width:38px;min-height:38px;padding:4px 7px}
+  .bMain{padding:7px;padding-bottom:max(12px,env(safe-area-inset-bottom));gap:7px}
+  .cam-area{border-radius:8px;max-height:58vh}
+  .calibLaunch{order:-1}
+  .board-area{padding:5px}
+  .share{padding:10px}
+  .actions button{min-height:46px}
 }
 </style>
 </head>
@@ -166,12 +210,51 @@ a{color:#7cb7ff}
     <select id="cameraSelect"><option value="">カメラ自動</option></select>
   </div>
   <div class="bMain">
+    <div class="calibLaunch">
+      <div class="copy">
+        <strong>碁盤の位置</strong>
+        <small>横・斜め撮影も、四隅をタップして合わせられます</small>
+      </div>
+      <button id="btnCalibrate" type="button">碁盤を合わせる</button>
+    </div>
     <div class="cam-area" id="camArea">
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="overlay"></canvas>
+      <div class="calibPanel" aria-live="polite">
+        <div class="calibGuide">
+          <span class="calibStep" id="calibStep">1</span>
+          <div class="text">
+            <strong id="calibTitle">左上の交点をタップ</strong>
+            <small id="calibHelp">碁盤のいちばん左上にある線の交点を選びます</small>
+          </div>
+        </div>
+        <div class="calibControls" id="calibControls">
+          <button id="calibUndo" type="button">元に戻す</button>
+          <button id="calibCancel" type="button">キャンセル</button>
+          <button class="confirm" id="calibDone" type="button">この位置で開始</button>
+        </div>
+      </div>
       <div class="camHint">
         <div id="camHintMsg">カメラを起動してください</div>
         <button id="camRetry">もう一度試す</button>
+      </div>
+    </div>
+    <div class="calibAdjust" id="calibAdjust">
+      <div class="calibAdjustHead">
+        <strong>ボタンで微調整</strong>
+        <span>長押しで連続移動できます</span>
+      </div>
+      <div class="cornerSelect" id="cornerSelect">
+        <button type="button" data-corner="0">① 左上</button>
+        <button type="button" data-corner="1">② 右上</button>
+        <button type="button" data-corner="2">③ 右下</button>
+        <button type="button" data-corner="3">④ 左下</button>
+      </div>
+      <div class="nudgeBtns">
+        <button type="button" data-dx="-1" data-dy="0" aria-label="左へ動かす">←</button>
+        <button type="button" data-dx="0" data-dy="-1" aria-label="上へ動かす">↑</button>
+        <button type="button" data-dx="0" data-dy="1" aria-label="下へ動かす">↓</button>
+        <button type="button" data-dx="1" data-dy="0" aria-label="右へ動かす">→</button>
       </div>
     </div>
     <div class="board-area">
@@ -197,7 +280,7 @@ a{color:#7cb7ff}
       </div>
     </div>
     <details class="settings">
-      <summary>設定 ・ しきい値調整</summary>
+      <summary>認識・棋譜の詳細設定</summary>
       <div class="sBody">
         <div class="sRow">
           <div class="sHead">黒の検出強度 <span class="v" id="blackVal">55</span></div>
@@ -249,11 +332,11 @@ a{color:#7cb7ff}
       <span id="turnInd">手番: --</span>
     </div>
     <div class="actions">
-      <button id="btnReset">隅をリセット</button>
+      <button id="btnReset">四隅を選び直す</button>
       <button id="btnRotate">盤を90°回転</button>
       <button id="btnSetInitial">現在を初手前に設定</button>
       <button id="btnClearMoves">履歴クリア</button>
-      <button id="btnRecalib">再キャリブレ</button>
+      <button id="btnRecalib">認識を再同期</button>
       <button id="btnPng">盤面をPNG保存</button>
       <button id="btnUndo">最終手・パスを取消</button>
       <button class="primary full" id="btnSGF">SGFをダウンロード</button>
@@ -307,6 +390,7 @@ const PROC_W = 640;          // downscaled processing width
 const PEER_PREFIX = 'goboard-';
 const STORAGE_KEY = 'goboard.settings.v1';
 const GAME_KEY = 'goboard.game.v2';
+const CALIBRATION_UI_KEY = 'goboard.calibration.ui.v2';
 
 // ============================================================
 // STATE
@@ -364,6 +448,11 @@ const S = {
   wakeLock: null,
   // UI
   draggingHandle: -1,
+  calibrating: false,
+  calibrationStep: 0,
+  calibrationDraft: [],
+  calibrationOriginal: null,
+  calibrationSelected: 0,
   // Offscreen
   procCanvas: null,
   procCtx: null,
@@ -699,10 +788,141 @@ function overlayToNorm(px, py){
 }
 
 const HANDLE_R = 22;
+const CALIBRATION_LABELS = [
+  ['① 左上を合わせる','映像の交点をタップするか、下の矢印で動かします'],
+  ['② 右上を合わせる','映像の交点をタップするか、下の矢印で動かします'],
+  ['③ 右下を合わせる','映像の交点をタップするか、下の矢印で動かします'],
+  ['④ 左下を合わせる','映像の交点をタップするか、下の矢印で動かします'],
+];
+function updateCalibrationUI(){
+  const count = S.calibrationDraft.length;
+  const ready = count === 4;
+  $('calibControls').classList.toggle('ready', ready);
+  $('calibAdjust').classList.toggle('show', S.calibrating && ready);
+  $('calibUndo').disabled = false;
+  document.querySelectorAll('#cornerSelect button').forEach(b=>{
+    b.classList.toggle('active', +b.dataset.corner === S.calibrationSelected);
+  });
+  $('calibStep').textContent = String(S.calibrationSelected + 1);
+  $('calibTitle').textContent = CALIBRATION_LABELS[S.calibrationSelected][0];
+  $('calibHelp').textContent = CALIBRATION_LABELS[S.calibrationSelected][1];
+}
+function startCalibration(){
+  if(!S.videoEl || !S.videoEl.videoWidth){ toast('カメラが映ってから設定してください', true); return; }
+  S.calibrating = true;
+  S.calibrationOriginal = S.corners ? S.corners.map(p=>({...p})) : null;
+  S.calibrationStep = 4;
+  S.calibrationDraft = (S.calibrationOriginal || defaultCorners()).map(p=>({...p}));
+  S.calibrationSelected = 0;
+  S.draggingHandle = -1;
+  $('camArea').classList.add('calibrating');
+  updateCalibrationUI();
+  drawOverlay();
+}
+function cancelCalibration(){
+  S.calibrating = false;
+  S.calibrationDraft = [];
+  S.draggingHandle = -1;
+  $('camArea').classList.remove('calibrating');
+  $('calibAdjust').classList.remove('show');
+  drawOverlay();
+}
+function isUsableQuad(q){
+  if(!Array.isArray(q) || q.length !== 4) return false;
+  let area = 0;
+  for(let i=0;i<4;i++){
+    const a=q[i], b=q[(i+1)%4];
+    area += a.x*b.y-b.x*a.y;
+  }
+  if(Math.abs(area)/2 < 0.025) return false;
+  const signs=[];
+  for(let i=0;i<4;i++){
+    const a=q[i],b=q[(i+1)%4],c=q[(i+2)%4];
+    signs.push((b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x));
+  }
+  return signs.every(v=>v>0) || signs.every(v=>v<0);
+}
+function finishCalibration(){
+  if(!isUsableQuad(S.calibrationDraft)){
+    toast('四隅が交差しています。左上から時計回りに選び直してください', true);
+    return;
+  }
+  S.corners = S.calibrationDraft.map(p=>({...p}));
+  S.calibrating = false;
+  S.calibrationDraft = [];
+  S.draggingHandle = -1;
+  $('camArea').classList.remove('calibrating');
+  $('calibAdjust').classList.remove('show');
+  initDetectionState(S.committed);
+  S.suspiciousFrames = 0;
+  try{ localStorage.setItem(CALIBRATION_UI_KEY, '1'); }catch(e){}
+  saveSettings();
+  drawOverlay();
+  toast('碁盤の位置を固定しました');
+}
+function nudgeCalibrationCorner(dx,dy){
+  if(!S.calibrating || S.calibrationDraft.length !== 4) return;
+  const p=S.calibrationDraft[S.calibrationSelected];
+  const step=0.004;
+  p.x=clamp(p.x+dx*step,0,1);
+  p.y=clamp(p.y+dy*step,0,1);
+  drawOverlay();
+}
+function drawCalibrationMagnifier(ctx,ov,p){
+  const v=S.videoEl;
+  if(!v || !v.videoWidth || !v.videoHeight) return;
+  const size=Math.min(220,ov.width*.38), half=size/2;
+  const cx=p.x < ov.width/2 ? ov.width-size*.66 : size*.66;
+  const cy=ov.height/2;
+  const src=Math.max(60,Math.min(v.videoWidth,v.videoHeight)*.12);
+  const n=S.calibrationDraft[S.calibrationSelected];
+  const sx=clamp(n.x*v.videoWidth-src/2,0,Math.max(0,v.videoWidth-src));
+  const sy=clamp(n.y*v.videoHeight-src/2,0,Math.max(0,v.videoHeight-src));
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,half,0,Math.PI*2); ctx.clip();
+  ctx.drawImage(v,sx,sy,src,src,cx-half,cy-half,size,size);
+  ctx.strokeStyle='rgba(244,208,63,.95)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(cx-half,cy); ctx.lineTo(cx+half,cy);
+  ctx.moveTo(cx,cy-half); ctx.lineTo(cx,cy+half); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx,cy,half,0,Math.PI*2);
+  ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.stroke();
+}
 function drawOverlay(){
   const ov = $('overlay');
   const ctx = ov.getContext('2d');
   ctx.clearRect(0,0,ov.width,ov.height);
+  if(S.calibrating){
+    const pts = S.calibrationDraft.map(normToOverlay);
+    if(pts.length===4 && isUsableQuad(S.calibrationDraft)){
+      const H = makeHomography(pts), N = S.size;
+      ctx.strokeStyle='rgba(244,208,63,.26)'; ctx.lineWidth=1;
+      for(let i=0;i<N;i++){
+        const u=i/(N-1), a=H(u,0), b=H(u,1), c=H(0,u), d=H(1,u);
+        ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(d.x,d.y); ctx.stroke();
+      }
+    }
+    if(pts.length){
+      ctx.strokeStyle = 'rgba(244,208,63,.95)';
+      ctx.lineWidth = 4;
+      ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+      for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+      if(pts.length===4) ctx.closePath();
+      ctx.stroke();
+    }
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i];
+      ctx.beginPath(); ctx.arc(p.x,p.y,HANDLE_R+4,0,Math.PI*2);
+      ctx.fillStyle=i===S.draggingHandle?'#fff':'#f4d03f'; ctx.fill();
+      ctx.strokeStyle='#111'; ctx.lineWidth=3; ctx.stroke();
+      ctx.fillStyle='#111'; ctx.font='900 17px sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(i+1),p.x,p.y);
+    }
+    if(pts.length===4) drawCalibrationMagnifier(ctx,ov,pts[S.calibrationSelected]);
+    return;
+  }
   if(!S.corners) return;
   const pts = S.corners.map(normToOverlay);
   // Quad outline
@@ -774,9 +994,10 @@ function drawOverlay(){
   }
 }
 function findHandle(x,y){
-  if(!S.corners) return -1;
-  for(let i=0;i<4;i++){
-    const p = normToOverlay(S.corners[i]);
+  const corners = S.calibrating ? S.calibrationDraft : S.corners;
+  if(!corners) return -1;
+  for(let i=0;i<corners.length;i++){
+    const p = normToOverlay(corners[i]);
     if(Math.hypot(x - p.x, y - p.y) <= HANDLE_R + 6) return i;
   }
   return -1;
@@ -795,7 +1016,12 @@ function attachOverlayInput(){
     const idx = findHandle(p.x, p.y);
     if(idx >= 0){
       S.draggingHandle = idx;
+      if(S.calibrating){ S.calibrationSelected = idx; updateCalibrationUI(); }
       ov.setPointerCapture(e.pointerId);
+      drawOverlay();
+    } else if(S.calibrating){
+      S.calibrationDraft[S.calibrationSelected] = overlayToNorm(p.x,p.y);
+      updateCalibrationUI();
       drawOverlay();
     }
     e.preventDefault();
@@ -804,14 +1030,15 @@ function attachOverlayInput(){
     if(S.draggingHandle < 0) return;
     const p = evtPos(e);
     const n = overlayToNorm(p.x, p.y);
-    S.corners[S.draggingHandle] = n;
+    if(S.calibrating) S.calibrationDraft[S.draggingHandle] = n;
+    else S.corners[S.draggingHandle] = n;
     drawOverlay();
     e.preventDefault();
   });
   function endDrag(e){
     if(S.draggingHandle < 0) return;
     S.draggingHandle = -1;
-    saveSettings();
+    if(!S.calibrating) saveSettings();
     drawOverlay();
   }
   ov.addEventListener('pointerup', endDrag);
@@ -863,6 +1090,7 @@ function commitFromHistory(){
   return changed;
 }
 function detectFrame(){
+  if(S.calibrating) return;
   if(!S.videoEl || !S.videoEl.videoWidth) return;
   ensureCorners();
   const v = S.videoEl;
@@ -1600,11 +1828,7 @@ async function enterBroadcast(){
     drawOverlay();
     startProcessingLoop();
     startPeerHost();
-    if(!localStorage.getItem('goboard.tutDone')){
-      setTimeout(()=>toast('① 黄色いハンドルを碁盤の四隅(交点)に合わせる ② 設定でしきい値を調整'), 600);
-      setTimeout(()=>toast('③ 部屋IDかURLを共有 ④ 観戦側はURLを開くだけ'), 4200);
-      localStorage.setItem('goboard.tutDone', '1');
-    }
+    if(!localStorage.getItem(CALIBRATION_UI_KEY)) setTimeout(startCalibration, 350);
   } catch(e){
     console.error(e);
     $('camArea').classList.add('noCam');
@@ -1713,6 +1937,36 @@ function init(){
 
   // Broadcaster controls
   $('bExit').addEventListener('click', exitBroadcast);
+  $('btnCalibrate').addEventListener('click', startCalibration);
+  $('calibCancel').addEventListener('click', cancelCalibration);
+  $('calibDone').addEventListener('click', finishCalibration);
+  $('calibUndo').addEventListener('click', ()=>{
+    S.calibrationDraft = (S.calibrationOriginal || defaultCorners()).map(p=>({...p}));
+    S.draggingHandle = -1;
+    updateCalibrationUI();
+    drawOverlay();
+    toast('調整前の位置に戻しました');
+  });
+  document.querySelectorAll('#cornerSelect button').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      S.calibrationSelected = +b.dataset.corner;
+      updateCalibrationUI();
+      drawOverlay();
+    });
+  });
+  document.querySelectorAll('.nudgeBtns button').forEach(b=>{
+    let delayTimer=null,repeatTimer=null;
+    const move=()=>nudgeCalibrationCorner(+b.dataset.dx,+b.dataset.dy);
+    const stop=()=>{ clearTimeout(delayTimer); clearInterval(repeatTimer); delayTimer=repeatTimer=null; };
+    b.addEventListener('pointerdown', e=>{
+      e.preventDefault(); move();
+      delayTimer=setTimeout(()=>{ repeatTimer=setInterval(move,80); },350);
+    });
+    b.addEventListener('pointerup',stop);
+    b.addEventListener('pointercancel',stop);
+    b.addEventListener('pointerleave',stop);
+    b.addEventListener('click',e=>{ if(e.detail===0) move(); });
+  });
   $('cameraSelect').addEventListener('change', async ()=>{
     try{ await startCamera(); resizeOverlay(); drawOverlay(); }
     catch(e){ toast('カメラ切替失敗: '+(e.message||e.name), true); }
@@ -1754,14 +2008,7 @@ function init(){
     toast((c==='B'?'黒':'白') + 'のパスを記録しました');
   });
   $('btnReset').addEventListener('click', ()=>{
-    S.corners = defaultCorners();
-    initDetectionState();
-    clearTracking();
-    S.revision++;
-    saveSettings();
-    saveGame();
-    drawOverlay();
-    toast('隅をリセットしました - ドラッグで合わせて下さい');
+    startCalibration();
   });
   $('btnRotate').addEventListener('click', ()=>{
     if(!S.corners) return;
