@@ -87,6 +87,8 @@ a{color:#7cb7ff}
 .calibControls.ready #calibUndo,.calibControls.ready #calibCancel{min-height:40px}
 .calibAdjust{display:none;padding:10px;border-radius:10px;background:#17191a;border:1px solid rgba(244,208,63,.35);flex-shrink:0}
 .calibAdjust.show{display:block}
+.hostManualToggle{width:100%;min-height:46px;border:none;border-radius:9px;background:#f4d03f;color:#171717;font-weight:900}.hostManualToggle:disabled{opacity:.55;cursor:wait}
+.hostManualTools{display:none;margin-top:8px}.hostManualTools.show{display:block}
 .calibAdjustHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
 .calibAdjustHead strong{font-size:.84rem;color:#f4d03f}
 .calibAdjustHead span{font-size:.7rem;color:#9ca6a1}
@@ -173,6 +175,8 @@ a{color:#7cb7ff}
 .remoteCanvasWrap img{display:block;width:100%;height:100%}
 .remoteCanvasWrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .remoteCornerTools{display:none;gap:8px}.remoteCornerTools.show{display:flex;flex-direction:column}
+.remoteManualToggle{min-height:44px;border:1px solid rgba(244,208,63,.65);border-radius:9px;background:rgba(244,208,63,.14);color:#f4d03f;font-weight:900}.remoteManualToggle:disabled{opacity:.55;cursor:wait}
+.remoteManualTools{display:none;flex-direction:column;gap:8px}.remoteManualTools.show{display:flex}
 .remoteApply{background:#f4d03f;color:#161616;border:none;font-size:.95rem;position:sticky;bottom:0}
 .remoteApply:disabled{opacity:.55;cursor:wait}
 
@@ -302,22 +306,25 @@ a{color:#7cb7ff}
       </div>
     </div>
     <div class="calibAdjust" id="calibAdjust">
-      <div class="calibAdjustHead">
-        <strong>ボタンで微調整</strong>
-        <span>長押しで連続移動できます</span>
-      </div>
-      <button class="hostAutoCorners" id="hostAutoCorners" type="button">自動で四隅を探し直す</button>
-      <div class="cornerSelect" id="cornerSelect">
-        <button type="button" data-corner="0">① 画面左上</button>
-        <button type="button" data-corner="1">② 画面右上</button>
-        <button type="button" data-corner="2">③ 画面右下</button>
-        <button type="button" data-corner="3">④ 画面左下</button>
-      </div>
-      <div class="nudgeBtns">
-        <button type="button" data-dx="-1" data-dy="0" aria-label="左へ動かす">←</button>
-        <button type="button" data-dx="0" data-dy="-1" aria-label="上へ動かす">↑</button>
-        <button type="button" data-dx="0" data-dy="1" aria-label="下へ動かす">↓</button>
-        <button type="button" data-dx="1" data-dy="0" aria-label="右へ動かす">→</button>
+      <button class="hostManualToggle" id="hostManualToggle" type="button">手動で四隅を調整</button>
+      <div class="hostManualTools" id="hostManualTools">
+        <div class="calibAdjustHead">
+          <strong>ボタンで微調整</strong>
+          <span>長押しで連続移動できます</span>
+        </div>
+        <button class="hostAutoCorners" id="hostAutoCorners" type="button">もう一度自動検出</button>
+        <div class="cornerSelect" id="cornerSelect">
+          <button type="button" data-corner="0">① 画面左上</button>
+          <button type="button" data-corner="1">② 画面右上</button>
+          <button type="button" data-corner="2">③ 画面右下</button>
+          <button type="button" data-corner="3">④ 画面左下</button>
+        </div>
+        <div class="nudgeBtns">
+          <button type="button" data-dx="-1" data-dy="0" aria-label="左へ動かす">←</button>
+          <button type="button" data-dx="0" data-dy="-1" aria-label="上へ動かす">↑</button>
+          <button type="button" data-dx="0" data-dy="1" aria-label="下へ動かす">↓</button>
+          <button type="button" data-dx="1" data-dy="0" aria-label="右へ動かす">→</button>
+        </div>
       </div>
     </div>
     <div class="board-area">
@@ -448,12 +455,15 @@ a{color:#7cb7ff}
       <button type="button" data-side="top">↑ 画面上</button><button type="button" data-side="right">画面右 →</button><button type="button" data-side="bottom">↓ 画面下</button><button type="button" data-side="left">← 画面左</button>
     </div>
     <div class="remoteCornerTools" id="remoteCornerTools">
-      <div class="remoteCornerHead"><div class="remoteSectionTitle">2. 調整する隅</div><button id="remoteAutoCorners" type="button">自動で探し直す</button></div>
-      <div class="remoteCorners" id="remoteCorners"><button type="button" data-corner="0">左上</button><button type="button" data-corner="1">右上</button><button type="button" data-corner="2">右下</button><button type="button" data-corner="3">左下</button></div>
-      <div class="remoteLoupeHead"><div class="remoteSectionTitle">選択中の隅を拡大</div><div class="remoteZoomBtns" id="remoteZoomBtns"><button type="button" data-zoom="3">3×</button><button type="button" data-zoom="5" class="active" aria-pressed="true">5×</button><button type="button" data-zoom="8">8×</button></div></div>
-      <div class="remoteLoupe"><canvas id="remoteLoupe" aria-label="選択した隅の拡大表示"></canvas></div>
-      <div class="remoteSectionTitle">矢印で細かく移動</div>
-      <div class="remoteNudge"><button type="button" data-dx="-1" data-dy="0" aria-label="左へ移動">←</button><button type="button" data-dx="0" data-dy="-1" aria-label="上へ移動">↑</button><button type="button" data-dx="0" data-dy="1" aria-label="下へ移動">↓</button><button type="button" data-dx="1" data-dy="0" aria-label="右へ移動">→</button></div>
+      <button class="remoteManualToggle" id="remoteManualToggle" type="button">手動で四隅を調整</button>
+      <div class="remoteManualTools" id="remoteManualTools">
+        <div class="remoteCornerHead"><div class="remoteSectionTitle">2. 調整する隅</div><button id="remoteAutoCorners" type="button">もう一度自動検出</button></div>
+        <div class="remoteCorners" id="remoteCorners"><button type="button" data-corner="0">左上</button><button type="button" data-corner="1">右上</button><button type="button" data-corner="2">右下</button><button type="button" data-corner="3">左下</button></div>
+        <div class="remoteLoupeHead"><div class="remoteSectionTitle">選択中の隅を拡大</div><div class="remoteZoomBtns" id="remoteZoomBtns"><button type="button" data-zoom="3">3×</button><button type="button" data-zoom="5" class="active" aria-pressed="true">5×</button><button type="button" data-zoom="8">8×</button></div></div>
+        <div class="remoteLoupe"><canvas id="remoteLoupe" aria-label="選択した隅の拡大表示"></canvas></div>
+        <div class="remoteSectionTitle">矢印で細かく移動</div>
+        <div class="remoteNudge"><button type="button" data-dx="-1" data-dy="0" aria-label="左へ移動">←</button><button type="button" data-dx="0" data-dy="-1" aria-label="上へ移動">↑</button><button type="button" data-dx="0" data-dy="1" aria-label="下へ移動">↓</button><button type="button" data-dx="1" data-dy="0" aria-label="右へ移動">→</button></div>
+      </div>
       <button class="remoteApply" id="remoteApply" type="button">この設定をスマホへ送る</button>
     </div>
   </div>
@@ -550,13 +560,14 @@ const S = {
   calibrationSelected: 0,
   hostAutoBusy: false,
   hostAutoSeq: 0,
+  hostManualOpen: false,
   // Offscreen
   procCanvas: null,
   procCtx: null,
 };
 const R = {
   image:null, pendingCorners:null, corners:[], side:null, selected:0,
-  dragging:-1, token:null, size:19, zoom:5, applyTimer:null, autoBusy:false,
+  dragging:-1, token:null, size:19, zoom:5, applyTimer:null, applyBusy:false, autoBusy:false, manualOpen:false,
 };
 
 // ============================================================
@@ -926,6 +937,9 @@ function updateCalibrationUI(){
   $('calibPanel').classList.toggle('orientation', choosingOrientation);
   $('calibControls').classList.toggle('ready', ready);
   $('calibAdjust').classList.toggle('show', S.calibrating && ready && !choosingOrientation);
+  $('hostManualTools').classList.toggle('show',S.hostManualOpen);
+  $('hostManualToggle').textContent=S.hostManualOpen?'手動調整を閉じる':'手動で四隅を調整';
+  $('hostManualToggle').disabled=S.hostAutoBusy;
   $('calibUndo').disabled = false;
   document.querySelectorAll('#cornerSelect button').forEach(b=>{
     b.classList.toggle('active', +b.dataset.corner === S.calibrationSelected);
@@ -933,10 +947,11 @@ function updateCalibrationUI(){
   $('calibStep').textContent = String(S.calibrationSelected + 1);
   $('calibTitle').textContent = CALIBRATION_LABELS[S.calibrationSelected][0];
   $('calibHelp').textContent = CALIBRATION_LABELS[S.calibrationSelected][1];
+  if(!S.hostManualOpen){$('calibTitle').textContent='四隅の候補を確認';$('calibHelp').textContent='合っていれば「この位置で開始」。ずれていたら「手動で四隅を調整」';}
 }
 function startCalibration(stage='orientation'){
   if(!S.videoEl || !S.videoEl.videoWidth){ toast('カメラが映ってから設定してください', true); return; }
-  S.hostAutoSeq++;S.hostAutoBusy=false;$('hostAutoCorners').disabled=false;$('hostAutoCorners').textContent='自動で四隅を探し直す';
+  S.hostAutoSeq++;S.hostAutoBusy=false;S.hostManualOpen=false;$('hostAutoCorners').disabled=false;$('hostAutoCorners').textContent='もう一度自動検出';
   S.calibrating = true;
   S.calibrationStage = stage==='corners' && S.orientationConfirmed ? 'corners' : 'orientation';
   S.calibrationResetsOrientation = S.calibrationStage==='orientation';
@@ -953,7 +968,9 @@ function startCalibration(stage='orientation'){
   drawOverlay();
 }
 function setHostAutoBusy(busy){
-  S.hostAutoBusy=busy;const b=$('hostAutoCorners');b.disabled=busy;b.textContent=busy?'四隅を探索中…':'自動で四隅を探し直す';
+  S.hostAutoBusy=busy;const b=$('hostAutoCorners');b.disabled=busy;b.textContent=busy?'四隅を探索中…':'もう一度自動検出';$('hostManualToggle').disabled=busy;
+  $('calibDone').disabled=busy;$('calibUndo').disabled=busy;
+  document.querySelectorAll('#hostManualTools button').forEach(b=>b.disabled=busy);
 }
 function autoFindHostCorners(initial=false){
   if(S.hostAutoBusy||!S.calibrating||S.calibrationStage!=='corners'||!S.videoEl?.videoWidth)return;
@@ -965,9 +982,9 @@ function autoFindHostCorners(initial=false){
       const result=estimateBoardCorners(S.videoEl,seed,S.size,300);
       if(result.confident&&validRemoteCorners(result.corners)){
         S.calibrationDraft=result.corners.map(p=>({...p}));S.calibrationSelected=0;updateCalibrationUI();drawOverlay();
-        $('calibTitle').textContent='自動候補を確認';$('calibHelp').textContent='白い①を確認し、必要なら下の矢印で直してください';toast('四隅の候補を置きました。確認してから開始してください');
+        $('calibTitle').textContent='自動候補を確認';$('calibHelp').textContent='合っていれば開始。ずれていたら「手動で四隅を調整」を押してください';toast('四隅の候補を置きました。確認してから開始してください');
       }else{
-        updateCalibrationUI();drawOverlay();toast(initial?'自動検出が難しいため、現在の候補を表示します':'候補を見つけられませんでした',true);
+        updateCalibrationUI();drawOverlay();$('calibTitle').textContent='自動検出できませんでした';$('calibHelp').textContent='表示中の枠は仮の位置です。「手動で四隅を調整」を押してください';toast('四隅を手動で調整してください',true);
       }
     }catch(e){updateCalibrationUI();drawOverlay();toast('自動検出に失敗しました。手動で調整できます',true);}
     setHostAutoBusy(false);
@@ -978,6 +995,7 @@ function selectBlackSide(side){
   S.blackSide = side;
   S.orientationConfirmed = true;
   S.calibrationStage = 'corners';
+  S.hostManualOpen=false;
   S.calibrationDraft = (S.calibrationOriginal || defaultCorners()).map(p=>({...p}));
   updateOrientationStatus();
   updateCalibrationUI();
@@ -986,7 +1004,7 @@ function selectBlackSide(side){
   autoFindHostCorners(true);
 }
 function cancelCalibration(){
-  S.hostAutoSeq++;setHostAutoBusy(false);
+  S.hostAutoSeq++;setHostAutoBusy(false);S.hostManualOpen=false;
   S.blackSide = S.calibrationOriginalSide;
   S.orientationConfirmed = S.calibrationOriginalConfirmed;
   S.calibrating = false;
@@ -1013,6 +1031,7 @@ function isUsableQuad(q){
   return signs.every(v=>v>0) || signs.every(v=>v<0);
 }
 function finishCalibration(){
+  if(S.hostAutoBusy)return;
   if(!S.orientationConfirmed || S.calibrationStage!=='corners'){
     toast('先に黒番側の向きを選んでください', true);
     return;
@@ -1024,7 +1043,7 @@ function finishCalibration(){
   const sideChanged = S.blackSide !== S.calibrationOriginalSide;
   const resetForOrientation = sideChanged || S.calibrationResetsOrientation;
   S.corners = S.calibrationDraft.map(p=>({...p}));
-  S.hostAutoSeq++;setHostAutoBusy(false);
+  S.hostAutoSeq++;setHostAutoBusy(false);S.hostManualOpen=false;
   S.calibrating = false;
   S.calibrationDraft = [];
   S.draggingHandle = -1;
@@ -1041,6 +1060,7 @@ function finishCalibration(){
   toast(resetForOrientation ? '向きと四隅を固定しました。盤面を読み直します' : '碁盤の位置を固定しました');
 }
 function nudgeCalibrationCorner(dx,dy){
+  if(!S.hostManualOpen||S.hostAutoBusy)return;
   if(!S.calibrating || S.calibrationDraft.length !== 4) return;
   const p=S.calibrationDraft[S.calibrationSelected];
   const step=0.004;
@@ -1223,6 +1243,7 @@ function attachOverlayInput(){
     return { x: (t.clientX - r.left) * sx, y: (t.clientY - r.top) * sy };
   }
   ov.addEventListener('pointerdown', e=>{
+    if(!S.calibrating||!S.hostManualOpen||S.hostAutoBusy||S.calibrationStage!=='corners')return;
     const p = evtPos(e);
     const idx = findHandle(p.x, p.y);
     if(idx >= 0){
@@ -1802,7 +1823,7 @@ function validRemoteCorners(c){
   return Array.isArray(c)&&c.length===4&&c.every(p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1)&&isUsableQuad(c);
 }
 function closeHostSetupAfterRemote(){
-  S.hostAutoSeq++;setHostAutoBusy(false);S.calibrating=false;S.calibrationDraft=[];S.draggingHandle=-1;
+  S.hostAutoSeq++;setHostAutoBusy(false);S.hostManualOpen=false;S.calibrating=false;S.calibrationDraft=[];S.draggingHandle=-1;
   $('camArea').classList.remove('calibrating');$('calibAdjust').classList.remove('show');
   const details=document.querySelector('.settings');if(details)details.open=false;
   const main=document.querySelector('.bMain');if(main)main.scrollTo({top:0,behavior:'smooth'});
@@ -2004,11 +2025,18 @@ function estimateBoardCorners(img,seed,boardSize=19,maxWidth=420){
   return {corners:best,score:bestScore,confident:bestScore>1.6};
 }
 function setRemoteAutoBusy(busy){
-  R.autoBusy=busy;const b=$('remoteAutoCorners');b.disabled=busy;b.textContent=busy?'探索中…':'自動で探し直す';
+  R.autoBusy=busy;const b=$('remoteAutoCorners');b.disabled=busy;b.textContent=busy?'探索中…':'もう一度自動検出';
   document.querySelectorAll('#remoteSides button').forEach(x=>x.disabled=busy);
+  document.querySelectorAll('#remoteManualTools button').forEach(x=>x.disabled=busy);
+  $('remoteManualToggle').disabled=busy;$('remoteApply').disabled=busy||R.applyBusy;
+}
+function updateRemoteManualUI(){
+  $('remoteManualTools').classList.toggle('show',R.manualOpen);
+  $('remoteManualToggle').textContent=R.manualOpen?'手動調整を閉じる':'手動で四隅を調整';
+  $('remoteManualToggle').disabled=R.autoBusy;
 }
 function autoFindRemoteCorners(initial=false){
-  const img=$('remoteImg');if(!img.naturalWidth||R.autoBusy)return;
+  const img=$('remoteImg');if(!img.complete||!img.naturalWidth||!R.side||R.autoBusy)return;
   const requestToken=R.token,seed=R.corners.length===4?R.corners:R.pendingCorners;setRemoteAutoBusy(true);
   $('remoteHelp').textContent='格子線から四隅の候補を探しています…';
   setTimeout(()=>{
@@ -2017,9 +2045,9 @@ function autoFindRemoteCorners(initial=false){
       const result=estimateBoardCorners(img,seed,R.size||19,420);
       if(result.confident&&validRemoteCorners(result.corners)){
         R.pendingCorners=result.corners.map(p=>({...p}));if(R.side)R.corners=R.pendingCorners.map(p=>({...p}));
-        $('remoteHelp').textContent=R.side?'四隅の候補を置きました。拡大窓で確認して必要なら直してください。':'四隅の候補を置きました。次に黒番の方向を選んでください。';
+        $('remoteHelp').textContent='四隅の候補を置きました。正しければ送信、違う場合は「手動で四隅を調整」を押してください。';
       }else{
-        $('remoteHelp').textContent=initial?'自動検出が難しい画像です。黒番の方向を選び、四隅を手動で合わせてください。':'候補を見つけられませんでした。現在の位置をそのまま使います。';
+        $('remoteHelp').textContent=initial?'自動検出が難しい画像です。「手動で四隅を調整」を押してください。':'候補を見つけられませんでした。現在の位置をそのまま使います。';
       }
       setRemoteAutoBusy(false);layoutRemoteStage();
     }catch(e){setRemoteAutoBusy(false);$('remoteHelp').textContent='自動検出に失敗しました。四隅は手動で合わせられます。';}
@@ -2086,29 +2114,30 @@ function drawRemoteOverlay(){
   drawRemoteLoupe();
 }
 function setRemoteApplying(busy){
-  const b=$('remoteApply');b.disabled=busy;b.textContent=busy?'スマホへ送信中…':'この設定をスマホへ送る';
+  R.applyBusy=busy;const b=$('remoteApply');b.disabled=busy||R.autoBusy;b.textContent=busy?'スマホへ送信中…':'この設定をスマホへ送る';
 }
 function openRemoteSnapshot(data){
   if(typeof data.image!=='string'||!data.image.startsWith('data:image/jpeg;base64,')||data.image.length>2500000||!/^([a-f0-9]{32})$/.test(data.token||'')){toast('静止画データが不正です',true);return;}
-  R.token=data.token;R.size=[9,13,19].includes(+data.size)?+data.size:19;R.pendingCorners=validRemoteCorners(data.corners)?data.corners.map(p=>({...p})):defaultCorners();R.corners=[];R.side=null;R.selected=0;
-  $('remoteCornerTools').classList.remove('show');document.querySelectorAll('#remoteSides button').forEach(b=>b.classList.remove('active'));
+  R.token=data.token;R.size=[9,13,19].includes(+data.size)?+data.size:19;R.pendingCorners=validRemoteCorners(data.corners)?data.corners.map(p=>({...p})):defaultCorners();R.corners=[];R.side=null;R.selected=0;R.manualOpen=false;
+  $('remoteCornerTools').classList.remove('show');$('remoteManualTools').classList.remove('show');document.querySelectorAll('#remoteSides button').forEach(b=>b.classList.remove('active'));
   $('remoteHelp').textContent='最初に、静止画のどちら側に黒番が座っているか選んでください。';
   clearTimeout(R.applyTimer);setRemoteApplying(false);setRemoteAutoBusy(false);
+  updateRemoteManualUI();
   $('remoteCalibModal').classList.add('show');
-  const img=$('remoteImg');img.onload=()=>requestAnimationFrame(()=>{layoutRemoteStage();autoFindRemoteCorners(true);});img.onerror=()=>{closeRemoteCalibration();toast('静止画を表示できませんでした。もう一度お試しください',true);};img.src=data.image;
+  const img=$('remoteImg');img.onload=()=>requestAnimationFrame(()=>{layoutRemoteStage();if(R.side)autoFindRemoteCorners(true);});img.onerror=()=>{closeRemoteCalibration();toast('静止画を表示できませんでした。もう一度お試しください',true);};img.src=data.image;
 }
 function closeRemoteCalibration(){
   clearTimeout(R.applyTimer);R.applyTimer=null;setRemoteApplying(false);setRemoteAutoBusy(false);
   $('remoteCalibModal').classList.remove('show');$('remoteImg').removeAttribute('src');
-  R.image=null;R.pendingCorners=null;R.corners=[];R.side=null;R.dragging=-1;R.token=null;R.autoBusy=false;
+  R.image=null;R.pendingCorners=null;R.corners=[];R.side=null;R.dragging=-1;R.token=null;R.autoBusy=false;R.manualOpen=false;
 }
 function selectRemoteSide(side){
-  if(!BLACK_SIDE_LABELS[side]||!R.pendingCorners)return;R.side=side;R.selected=0;R.corners=R.pendingCorners.map(p=>({...p}));
+  if(!BLACK_SIDE_LABELS[side]||!R.pendingCorners||R.autoBusy)return;R.side=side;R.selected=0;R.manualOpen=false;R.corners=R.pendingCorners.map(p=>({...p}));
   document.querySelectorAll('#remoteSides button').forEach(b=>b.classList.toggle('active',b.dataset.side===side));
   document.querySelectorAll('#remoteCorners button').forEach(b=>b.classList.toggle('active',+b.dataset.corner===0));
-  $('remoteCornerTools').classList.add('show');$('remoteHelp').textContent='隅のリングをドラッグ。選択後はボタンまたはキーボードの矢印で細かく動かせます。';layoutRemoteStage();
+  $('remoteCornerTools').classList.add('show');updateRemoteManualUI();layoutRemoteStage();autoFindRemoteCorners(true);
 }
-function nudgeRemote(dx,dy,multiplier=1){if(R.corners.length!==4)return;const p=R.corners[R.selected];p.x=clamp(p.x+dx*.0015*multiplier,0,1);p.y=clamp(p.y+dy*.0015*multiplier,0,1);drawRemoteOverlay();}
+function nudgeRemote(dx,dy,multiplier=1){if(!R.manualOpen||R.corners.length!==4)return;const p=R.corners[R.selected];p.x=clamp(p.x+dx*.0015*multiplier,0,1);p.y=clamp(p.y+dy*.0015*multiplier,0,1);drawRemoteOverlay();}
 function startPeerViewer(shortId){
   shortId = normalizeRoomId(shortId);
   if(!shortId){ toast('部屋IDは英数字6文字で入力してください', true); showScreen('modeSelect'); return; }
@@ -2387,6 +2416,7 @@ function init(){
   document.querySelectorAll('#orientationPicker button[data-side]').forEach(b=>{
     b.addEventListener('click', ()=>selectBlackSide(b.dataset.side));
   });
+  $('hostManualToggle').addEventListener('click',()=>{if(S.hostAutoBusy)return;S.hostManualOpen=!S.hostManualOpen;updateCalibrationUI();});
   $('hostAutoCorners').addEventListener('click',()=>autoFindHostCorners(false));
   $('calibCancel').addEventListener('click', cancelCalibration);
   $('calibDone').addEventListener('click', finishCalibration);
@@ -2551,6 +2581,10 @@ function init(){
     toast('スマホへ静止画を要求しました');
   });
   $('remoteClose').addEventListener('click', closeRemoteCalibration);
+  $('remoteManualToggle').addEventListener('click',()=>{
+    if(R.autoBusy||R.applyBusy)return;
+    R.manualOpen=!R.manualOpen;R.dragging=-1;updateRemoteManualUI();layoutRemoteStage();
+  });
   document.querySelectorAll('#remoteSides button[data-side]').forEach(b=>{
     b.addEventListener('click', ()=>selectRemoteSide(b.dataset.side));
   });
@@ -2596,7 +2630,7 @@ function init(){
     return {x:clamp((e.clientX-r.left)/r.width,0,1),y:clamp((e.clientY-r.top)/r.height,0,1),radius:28/Math.max(r.width,r.height)};
   };
   remoteOv.addEventListener('pointerdown',e=>{
-    if(!R.side||R.corners.length!==4)return;
+    if(!R.side||!R.manualOpen||R.autoBusy||R.applyBusy||R.corners.length!==4)return;
     e.preventDefault();const p=remotePoint(e);let best=-1,bestD=Infinity;
     R.corners.forEach((q,i)=>{const d=Math.hypot(q.x-p.x,q.y-p.y);if(d<bestD){bestD=d;best=i;}});
     R.selected=bestD<=p.radius?best:R.selected;
