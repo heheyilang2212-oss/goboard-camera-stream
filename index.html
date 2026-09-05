@@ -529,6 +529,10 @@ const S = {
   videoEl: null,
   cameras: [],
   selectedCamId: null,
+  cameraGeneration: 0,
+  cameraWaitCancel: null,
+  broadcastGeneration: 0,
+  viewerGeneration: 0,
   // Loop
   loopHandle: null,
   lastProcTime: 0,
@@ -644,6 +648,23 @@ function saveSettings(){
 }
 function cloneBoard(board){
   return board ? board.map(row=>row.slice()) : null;
+}
+// Preserve the game when only the camera's board orientation is corrected.
+function reorientGame(from,to){
+  if(from===to)return;
+  const n=S.size-1;
+  const physical=(x,y,side)=>side==='left'?[n-y,x]:side==='top'?[n-x,n-y]:side==='right'?[y,n-x]:[x,y];
+  const logical=(x,y,side)=>side==='left'?[y,n-x]:side==='top'?[n-x,n-y]:side==='right'?[n-y,x]:[x,y];
+  const point=p=>{if(p.pass)return {...p};const [x,y]=logical(...physical(p.x,p.y,from),to);return {...p,x,y};};
+  const board=b=>{
+    if(!b)return b;
+    const result=Array.from({length:S.size},()=>Array(S.size).fill('.'));
+    for(let x=0;x<S.size;x++)for(let y=0;y<S.size;y++){const p=point({x,y});result[p.x][p.y]=b[x][y];}
+    return result;
+  };
+  S.committed=board(S.committed);S.prevCommitted=board(S.prevCommitted);S.initialPosition=board(S.initialPosition);
+  S.moves=S.moves.map(point);S.corrections=S.corrections.map(point);
+  S.undoStack=S.undoStack.map(s=>({...s,board:board(s.board)}));
 }
 function isValidBoard(board, N){
   return Array.isArray(board) && board.length === N && board.every(row=>
@@ -802,6 +823,9 @@ async function listCameras(){
 }
 async function startCamera(){
   stopCamera();
+  const generation=S.cameraGeneration;
+  const obsolete=()=>generation!==S.cameraGeneration;
+  const aborted=()=>Object.assign(new Error('Camera startup cancelled'),{name:'AbortError'});
   const id = $('cameraSelect').value;
   S.selectedCamId = id || null;
   saveSettings();
@@ -812,25 +836,32 @@ async function startCamera(){
     constraints = { video: { facingMode: { ideal: 'environment' }, width:{ideal:1920}, height:{ideal:1080} }, audio: false };
   }
   try{
-    S.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const stream=await navigator.mediaDevices.getUserMedia(constraints);
+    if(obsolete()){stream.getTracks().forEach(t=>t.stop());throw aborted();}S.stream=stream;
   }catch(e){
+    if(obsolete()||e.name==='AbortError')throw aborted();
     if(id){
-      try{ S.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+      try{ const stream=await navigator.mediaDevices.getUserMedia({ video: true, audio: false });if(obsolete()){stream.getTracks().forEach(t=>t.stop());throw aborted();}S.stream=stream; }
       catch(e2){ throw e2; }
     } else { throw e; }
   }
   S.videoEl = $('cam');
   S.videoEl.srcObject = S.stream;
-  await new Promise(res=>{
+  await new Promise((res,rej)=>{
     if(S.videoEl.readyState >= 2) return res();
-    S.videoEl.onloadedmetadata = ()=>res();
+    S.cameraWaitCancel=()=>rej(aborted());
+    S.videoEl.onloadedmetadata = ()=>{S.cameraWaitCancel=null;res();};
   });
+  if(obsolete())throw aborted();
   $('camArea').classList.remove('noCam');
   // After permission we get labels
   await listCameras();
+  if(obsolete())throw aborted();
   resizeOverlay();
 }
 function stopCamera(){
+  S.cameraGeneration++;
+  if(S.cameraWaitCancel){S.cameraWaitCancel();S.cameraWaitCancel=null;}
   if(S.stream){
     S.stream.getTracks().forEach(t=>t.stop());
     S.stream = null;
@@ -839,8 +870,11 @@ function stopCamera(){
 }
 async function requestWakeLock(){
   if(!('wakeLock' in navigator) || document.hidden || S.wakeLock) return;
+  const generation=S.broadcastGeneration;
   try{
-    S.wakeLock = await navigator.wakeLock.request('screen');
+    const lock=await navigator.wakeLock.request('screen');
+    if(generation!==S.broadcastGeneration||S.mode!=='broadcast'){await lock.release();return;}
+    S.wakeLock = lock;
     S.wakeLock.addEventListener('release', ()=>{ S.wakeLock = null; });
   }catch(e){}
 }
@@ -1041,7 +1075,7 @@ function finishCalibration(){
     return;
   }
   const sideChanged = S.blackSide !== S.calibrationOriginalSide;
-  const resetForOrientation = sideChanged || S.calibrationResetsOrientation;
+  reorientGame(S.calibrationOriginalSide,S.blackSide);
   S.corners = S.calibrationDraft.map(p=>({...p}));
   S.hostAutoSeq++;setHostAutoBusy(false);S.hostManualOpen=false;
   S.calibrating = false;
@@ -1049,15 +1083,15 @@ function finishCalibration(){
   S.draggingHandle = -1;
   $('camArea').classList.remove('calibrating');
   $('calibAdjust').classList.remove('show');
-  if(resetForOrientation){ initDetectionState(); clearTracking(); S.revision++; }
-  else initDetectionState(S.committed);
+  initDetectionState(S.committed);S.revision++;
   S.suspiciousFrames = 0;
   try{ localStorage.setItem(CALIBRATION_UI_KEY, '1'); }catch(e){}
   saveSettings();
   saveGame();
   updateOrientationStatus();
   drawOverlay();
-  toast(resetForOrientation ? '向きと四隅を固定しました。盤面を読み直します' : '碁盤の位置を固定しました');
+  drawBoardCanvas('boardB');broadcastState(true);
+  toast(sideChanged ? '棋譜を保ったまま向きと四隅を更新しました' : '碁盤の位置を固定しました');
 }
 function nudgeCalibrationCorner(dx,dy){
   if(!S.hostManualOpen||S.hostAutoBusy)return;
@@ -1076,11 +1110,12 @@ function drawCalibrationMagnifier(ctx,ov,p){
   const cy=ov.height/2;
   const src=Math.max(60,Math.min(v.videoWidth,v.videoHeight)*.12);
   const n=S.calibrationDraft[S.calibrationSelected];
-  const sx=clamp(n.x*v.videoWidth-src/2,0,Math.max(0,v.videoWidth-src));
-  const sy=clamp(n.y*v.videoHeight-src/2,0,Math.max(0,v.videoHeight-src));
+  const sx=n.x*v.videoWidth-src/2,sy=n.y*v.videoHeight-src/2;
   ctx.save();
   ctx.beginPath(); ctx.arc(cx,cy,half,0,Math.PI*2); ctx.clip();
-  ctx.drawImage(v,sx,sy,src,src,cx-half,cy-half,size,size);
+  ctx.fillStyle='#050505';ctx.fillRect(cx-half,cy-half,size,size);
+  const x0=Math.max(0,sx),y0=Math.max(0,sy),x1=Math.min(v.videoWidth,sx+src),y1=Math.min(v.videoHeight,sy+src);
+  if(x1>x0&&y1>y0)ctx.drawImage(v,x0,y0,x1-x0,y1-y0,cx-half+(x0-sx)*size/src,cy-half+(y0-sy)*size/src,(x1-x0)*size/src,(y1-y0)*size/src);
   ctx.strokeStyle='rgba(244,208,63,.95)'; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(cx-half,cy); ctx.lineTo(cx+half,cy);
   ctx.moveTo(cx,cy-half); ctx.lineTo(cx,cy+half); ctx.stroke();
@@ -1351,7 +1386,6 @@ function detectFrame(){
               + Math.hypot(cornersPx[2].x-cornersPx[1].x, cornersPx[2].y-cornersPx[1].y)) / 2 / (N-1);
   const spacing = Math.min(dxAvg, dyAvg);
   if(!isFinite(spacing) || spacing < 4) return;
-  const patchR = Math.max(2, Math.min(12, Math.round(spacing * 0.30)));
 
   // 1st pass: compute median V at each intersection
   const Vs = new Float32Array(N*N);
@@ -1362,16 +1396,16 @@ function detectFrame(){
     const u = i/(N-1);
     for(let j=0;j<N;j++){
       const vN = j/(N-1);
-      const p = Hg(u, vN);
-      const cx = p.x|0, cy = p.y|0;
       buf.length = 0;
       satBuf.length = 0;
-      for(let dy=-patchR; dy<=patchR; dy++){
-        const y = cy + dy;
-        if(y < 0 || y >= H) continue;
-        for(let dx=-patchR; dx<=patchR; dx++){
-          if(dx*dx + dy*dy > patchR*patchR) continue;
-          const x = cx + dx;
+      // Sample a disk on the board, then project every sample into the camera image.
+      // Its image footprint shrinks and becomes elliptical towards the far edge.
+      for(let dy=-4; dy<=4; dy++){
+        for(let dx=-4; dx<=4; dx++){
+          if(dx*dx+dy*dy>16)continue;
+          const p=Hg(u+dx*.075/(N-1),vN+dy*.075/(N-1));
+          const x=Math.round(p.x),y=Math.round(p.y);
+          if(y<0||y>=H)continue;
           if(x < 0 || x >= W) continue;
           const o = (y*W + x) * 4;
           const r = data[o], g = data[o+1], b = data[o+2];
@@ -1518,20 +1552,24 @@ function trackMoves(){
   }
   // Diff prev → current
   const newOnes = [];
+  const observedCorrections=[];
   let bDelta = 0, wDelta = 0;
   for(let i=0;i<N;i++) for(let j=0;j<N;j++){
     const a = S.prevCommitted[i][j], b = S.committed[i][j];
     if(a === b) continue;
     if(a === '.' && b === 'B'){ newOnes.push({c:'B',x:i,y:j}); bDelta++; }
     else if(a === '.' && b === 'W'){ newOnes.push({c:'W',x:i,y:j}); wDelta++; }
-    else if(a === 'B' && b === 'W'){ newOnes.push({c:'W',x:i,y:j}); wDelta++; }
-    else if(a === 'W' && b === 'B'){ newOnes.push({c:'B',x:i,y:j}); bDelta++; }
+    else if(a!=='.'&&b!=='.'){
+      // A color change at an occupied point is an observation correction, not a move.
+      observedCorrections.push({afterMove:S.moves.length,x:i,y:j,value:b,t:Date.now()});
+    }
     // a !== '.' && b === '.' — removed (capture). No move recorded for it.
   }
   if(newOnes.length === 0){
+    S.corrections.push(...observedCorrections);
     syncPrevToCommitted();
     S.suspiciousFrames = 0;
-    return false;
+    return observedCorrections.length>0;
   }
   if(bDelta > 1 || wDelta > 1){
     // Likely recognition flicker; wait. If it persists too long, force-resync.
@@ -1544,12 +1582,12 @@ function trackMoves(){
     return false;
   }
   S.suspiciousFrames = 0;
-  // If both colors moved between samples (rare, only possible with very low FPS), record B first.
+  // If both colors appeared between accepted frames, start with the expected player.
   const bs = newOnes.filter(m=>m.c==='B');
   const ws = newOnes.filter(m=>m.c==='W');
   pushUndoSnapshot();
-  for(const m of bs) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
-  for(const m of ws) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
+  S.corrections.push(...observedCorrections);
+  for(const m of (S.turn==='W'?[...ws,...bs]:[...bs,...ws])) S.moves.push({c:m.c, x:m.x, y:m.y, t: Date.now()});
   const last = S.moves[S.moves.length-1];
   if(S.autoTurn && last) S.turn = last.c === 'B' ? 'W' : 'B';
   syncPrevToCommitted();
@@ -1842,10 +1880,11 @@ function handleHostPeerMessage(conn,data){
     if(Date.now()>S.remoteCalibUntil){disarmRemoteCalibration();sendRemoteError(conn,'5分の許可時間が切れました。スマホでもう一度許可してください');return;}
     if(!token||data.token!==token){sendRemoteError(conn,'古い調整画面です。閉じて静止画を取り直してください');return;}
     if(!BLACK_SIDE_LABELS[data.side]||!validRemoteCorners(data.corners)){sendRemoteError(conn,'向きまたは四隅の形を確認してください');return;}
+    reorientGame(S.calibrating?S.calibrationOriginalSide:S.blackSide,data.side);
     S.blackSide=data.side; S.orientationConfirmed=true;
     S.corners=data.corners.map(p=>({x:p.x,y:p.y}));
     closeHostSetupAfterRemote();
-    initDetectionState(); clearTracking(); S.suspiciousFrames=0; S.revision++;
+    initDetectionState(S.committed); S.suspiciousFrames=0; S.revision++;
     try{localStorage.setItem(CALIBRATION_UI_KEY,'1');}catch(e){}
     saveSettings(); saveGame(); drawOverlay(); drawBoardCanvas('boardB'); broadcastState(true);
     disarmRemoteCalibration();
@@ -1862,6 +1901,7 @@ function setLiveBadge(state){
   else { b.classList.add('connecting'); b.textContent = state; }
 }
 function startPeerHost(forceNewId){
+  if(S.mode!=='broadcast')return;
   if(typeof Peer === 'undefined'){
     setLiveBadge('PeerJS未読込');
     $('roomId').textContent = '配信不可';
@@ -1885,8 +1925,10 @@ function startPeerHost(forceNewId){
   }
   const id = PEER_PREFIX + shortId;
   setLiveBadge('connecting');
-  S.peer = new Peer(id, { debug: 1 });
+  const peer = S.peer = new Peer(id, { debug: 1 });
+  const active=()=>S.peer===peer&&S.mode==='broadcast';
   S.peer.on('open', (pid)=>{
+    if(!active())return;
     S.peerId = pid;
     const shortId = pid.replace(PEER_PREFIX, '');
     $('roomId').textContent = shortId;
@@ -1903,13 +1945,15 @@ function startPeerHost(forceNewId){
     toast('部屋ID: ' + shortId);
   });
   S.peer.on('connection', (conn)=>{
+    if(!active()){conn.close();return;}
     conn.on('open', ()=>{
+      if(!active()){conn.close();return;}
       S.conns.push(conn);
       $('viewerCount').textContent = S.conns.length;
       // Send initial snapshot
       sendStateTo(conn);
     });
-    conn.on('data', data=>handleHostPeerMessage(conn,data));
+    conn.on('data', data=>{if(active())handleHostPeerMessage(conn,data);});
     conn.on('close', ()=>{
       S.remoteCalibTokens.delete(conn);
       S.conns = S.conns.filter(c=>c!==conn);
@@ -1922,15 +1966,17 @@ function startPeerHost(forceNewId){
     });
   });
   S.peer.on('disconnected', ()=>{
+    if(!active())return;
     setLiveBadge('再接続中');
-    setTimeout(()=>{ try{ S.peer && S.peer.reconnect(); }catch(e){} }, 1500);
+    setTimeout(()=>{ try{ if(active())peer.reconnect(); }catch(e){} }, 1500);
   });
   S.peer.on('error', (err)=>{
+    if(!active())return;
     console.warn('peer error', err);
     if(err && err.type === 'unavailable-id'){
       // ID collision: drop the stored ID and try a new random one once.
       try{ localStorage.removeItem('goboard.peerShortId'); }catch(e){}
-      setTimeout(()=>startPeerHost(true), 200);
+      setTimeout(()=>{if(active())startPeerHost(true);}, 200);
     } else {
       setLiveBadge('エラー');
       toast('接続エラー: ' + (err.type || err.message || ''), true);
@@ -2137,8 +2183,10 @@ function selectRemoteSide(side){
   document.querySelectorAll('#remoteCorners button').forEach(b=>b.classList.toggle('active',+b.dataset.corner===0));
   $('remoteCornerTools').classList.add('show');updateRemoteManualUI();layoutRemoteStage();autoFindRemoteCorners(true);
 }
-function nudgeRemote(dx,dy,multiplier=1){if(!R.manualOpen||R.corners.length!==4)return;const p=R.corners[R.selected];p.x=clamp(p.x+dx*.0015*multiplier,0,1);p.y=clamp(p.y+dy*.0015*multiplier,0,1);drawRemoteOverlay();}
+function nudgeRemote(dx,dy,multiplier=1){if(!R.manualOpen||R.autoBusy||R.applyBusy||R.corners.length!==4)return;const p=R.corners[R.selected];p.x=clamp(p.x+dx*.0015*multiplier,0,1);p.y=clamp(p.y+dy*.0015*multiplier,0,1);drawRemoteOverlay();}
 function startPeerViewer(shortId){
+  const generation=++S.viewerGeneration;
+  clearTimeout(S.reconnectTimer);S.reconnectTimer=null;
   shortId = normalizeRoomId(shortId);
   if(!shortId){ toast('部屋IDは英数字6文字で入力してください', true); showScreen('modeSelect'); return; }
   $('vRoomId').textContent = shortId;
@@ -2150,28 +2198,36 @@ function startPeerViewer(shortId){
   if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
   S.peer = new Peer({ debug: 1 });
   S.peer.on('open', ()=>{
+    if(generation!==S.viewerGeneration||S.mode!=='view')return;
     connectToHost(shortId);
   });
   S.peer.on('error', (err)=>{
+    if(generation!==S.viewerGeneration||S.mode!=='view')return;
     console.warn('viewer peer error', err);
     setVStatus('接続エラー: ' + (err.type || err.message || ''), 'disconnected');
     scheduleReconnect(shortId);
   });
   S.peer.on('disconnected', ()=>{
+    if(generation!==S.viewerGeneration||S.mode!=='view')return;
     setVStatus('切断 - 再接続中...', 'disconnected');
     try{ S.peer.reconnect(); }catch(e){}
   });
 }
 function connectToHost(shortId){
   if(!S.peer) return;
+  const generation=S.viewerGeneration;
   const targetId = PEER_PREFIX + shortId;
   setVStatus('接続中...', 'connecting');
   const conn = S.peer.connect(targetId, { reliable: true });
   S.conn = conn;
+  const current=()=>generation===S.viewerGeneration&&S.conn===conn&&S.mode==='view';
   conn.on('open', ()=>{
+    if(!current())return;
+    clearTimeout(S.reconnectTimer);S.reconnectTimer=null;
     setVStatus('接続済み', 'connected');
   });
   conn.on('data', (data)=>{
+    if(!current())return;
     if(data&&data.type==='calib-snapshot'){openRemoteSnapshot(data);return;}
     if(data&&data.type==='calib-denied'){toast(data.reason||'PC調整は許可されていません',true);return;}
     if(data&&data.type==='calib-applied'){closeRemoteCalibration();toast('スマホへ設定を反映しました');return;}
@@ -2207,11 +2263,13 @@ function connectToHost(shortId){
     }
   });
   conn.on('close', ()=>{
+    if(!current())return;
     if($('remoteCalibModal').classList.contains('show')){closeRemoteCalibration();toast('接続が切れたためPC調整を閉じました',true);}
     setVStatus('切断されました - 再接続します...', 'disconnected');
     scheduleReconnect(shortId);
   });
   conn.on('error', (e)=>{
+    if(!current())return;
     if($('remoteCalibModal').classList.contains('show'))closeRemoteCalibration();
     setVStatus('接続エラー - 再接続します...', 'disconnected');
     scheduleReconnect(shortId);
@@ -2262,6 +2320,7 @@ function stopProcessingLoop(){
 // ============================================================
 async function enterBroadcast(){
   if(!checkSecure()) return;
+  const generation=++S.broadcastGeneration;
   showScreen('broadcastScreen');
   ensureCorners();
   const restored = restoreGame();
@@ -2291,14 +2350,17 @@ async function enterBroadcast(){
   if(restored) toast('前回の盤面と棋譜を復元しました');
   requestWakeLock();
   await listCameras();
+  if(generation!==S.broadcastGeneration||S.mode!=='broadcast')return;
   try{
     await startCamera();
+    if(generation!==S.broadcastGeneration||S.mode!=='broadcast')return;
     resizeOverlay();
     drawOverlay();
     startProcessingLoop();
     startPeerHost();
-    if(!localStorage.getItem(CALIBRATION_UI_KEY)) setTimeout(startCalibration, 350);
+    if(!localStorage.getItem(CALIBRATION_UI_KEY)) setTimeout(()=>{if(generation===S.broadcastGeneration&&S.mode==='broadcast')startCalibration();}, 350);
   } catch(e){
+    if(generation!==S.broadcastGeneration||S.mode!=='broadcast'||e.name==='AbortError')return;
     console.error(e);
     $('camArea').classList.add('noCam');
     const hint = (e && e.name === 'NotAllowedError') ? 'カメラ許可が拒否されました。ブラウザ設定で許可してください。'
@@ -2309,14 +2371,19 @@ async function enterBroadcast(){
   }
 }
 async function retryCamera(){
+  const generation=S.broadcastGeneration;
   try{
     await startCamera();
+    if(generation!==S.broadcastGeneration||S.mode!=='broadcast')return;
     $('camArea').classList.remove('noCam');
     resizeOverlay();
     drawOverlay();
     if(!S.loopHandle) startProcessingLoop();
+    if(!S.peer)startPeerHost();
+    if(!S.orientationConfirmed)startCalibration();
     toast('カメラを開きました');
   }catch(e){
+    if(generation!==S.broadcastGeneration||S.mode!=='broadcast'||e.name==='AbortError')return;
     const hint = (e && e.name === 'NotAllowedError') ? 'カメラ許可が拒否されています。ブラウザ設定で許可してください。'
       : (e && e.name === 'NotFoundError') ? 'カメラデバイスが見つかりません。'
       : 'カメラを開けません: ' + (e.message||e.name);
@@ -2325,6 +2392,9 @@ async function retryCamera(){
   }
 }
 function exitBroadcast(){
+  S.broadcastGeneration++;S.hostAutoSeq++;
+  S.calibrating=false;S.draggingHandle=-1;
+  disarmRemoteCalibration();
   stopProcessingLoop();
   stopCamera();
   releaseWakeLock();
@@ -2338,6 +2408,7 @@ function enterView(shortId){
   drawBoardCanvas('boardV', { size: S.size, committed: null });
 }
 function exitView(){
+  S.viewerGeneration++;
   closeRemoteCalibration();
   if(S.conn){ try{ S.conn.close(); }catch(e){} S.conn = null; }
   if(S.peer){ try{ S.peer.destroy(); }catch(e){} S.peer = null; }
