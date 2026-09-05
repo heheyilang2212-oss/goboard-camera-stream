@@ -1,6 +1,6 @@
 // Run with: node tests/regression.cjs (no third-party dependencies).
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
-const source=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8').match(/<script>([\s\S]*)<\/script>/)[1];
+const source=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 function harness(){
   const elements=new Map(),timers=new Map();let nextTimer=0;
   const element=id=>{
@@ -16,6 +16,26 @@ function harness(){
   return {run,ctx};
 }
 async function main(){
+  {
+    const {run,ctx}=harness();
+    vm.runInContext(fs.readFileSync(path.join(__dirname,'../remote-control.js'),'utf8'),ctx);
+    run(`S.mode='broadcast';S.size=9;initDetectionState();element('cameraSelect').options=[];
+      const messages=[];const owner={open:true,send:d=>messages.push(d)},observer={open:true,send:d=>messages.push(d)};
+      controlCode='ABCDEF123456';
+      handleControlMessage(observer,{type:'control-command',action:'pause',value:true});assert.equal(S.controlPaused,undefined);
+      handleControlMessage(owner,{type:'control-claim',code:controlCode});assert.equal(S.controlConnection,owner);
+      handleControlMessage(owner,{type:'control-command',action:'pause',value:true});assert.equal(S.controlPaused,true);
+      handleControlMessage(observer,{type:'control-command',action:'pause',value:false});assert.equal(S.controlPaused,true);
+      const old=S.blackTh;handleControlMessage(owner,{type:'control-command',action:'setting',key:'blackTh',value:999});assert.equal(S.blackTh,old);
+      handleControlMessage(owner,{type:'control-command',action:'size',value:17});assert.equal(S.size,9);
+      handleControlMessage(owner,{type:'control-command',action:'stone',x:2,y:3,value:'W'});assert.equal(S.committed[2][3],'W');
+      S.remoteCalibUntil=0;S.remoteCalibTokens.set(owner,'a'.repeat(32));
+      handleHostPeerMessage(owner,{type:'calib-apply',token:'a'.repeat(32),side:'bottom',corners:defaultCorners()});
+      assert.equal(S.controlConnection,owner);assert.equal(S.orientationConfirmed,true);
+      revokeControl();handleControlMessage(owner,{type:'control-command',action:'pause',value:false});assert.equal(S.controlPaused,true);
+      assert.equal(controlState().code,undefined);assert.equal(controlState().image,undefined);`);
+    console.log('PASS: PC authorization, observer isolation, revocation, validation and stone correction');
+  }
   {
     const {run}=harness();
     run(`S.size=9;initDetectionState();S.committed[2][3]='B';S.prevCommitted=cloneBoard(S.committed);S.moves=[{c:'B',x:2,y:3},{c:'W',pass:true}];S.initialPosition=cloneBoard(S.committed);S.movesInitialized=true;S.undoStack=[{board:cloneBoard(S.committed),movesLength:0}];S.corrections=[{afterMove:1,x:2,y:3,value:'B'}];

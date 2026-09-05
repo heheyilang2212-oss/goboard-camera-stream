@@ -1357,6 +1357,7 @@ function commitFromHistory(){
   return changed;
 }
 function detectFrame(){
+  if(S.controlPaused) return;
   if(S.calibrating || !S.orientationConfirmed) return;
   if(!S.videoEl || !S.videoEl.videoWidth) return;
   ensureCorners();
@@ -1869,15 +1870,16 @@ function closeHostSetupAfterRemote(){
 function sendRemoteError(conn,reason){try{conn.send({type:'calib-apply-error',reason});}catch(e){}}
 function handleHostPeerMessage(conn,data){
   if(!data||typeof data!=='object') return;
+  if(typeof handleControlMessage==='function' && handleControlMessage(conn,data))return;
   if(data.type==='calib-request'){
-    if(Date.now()>S.remoteCalibUntil){ try{conn.send({type:'calib-denied',reason:'スマホ側で「PC調整を5分許可」を押してください'});}catch(e){} return; }
+    if(!S.controlConnection || S.controlConnection!==conn){if(Date.now()>S.remoteCalibUntil){ try{conn.send({type:'calib-denied',reason:'スマホ側でPC操作を許可してください'});}catch(e){} return; }}
     const image=captureCalibrationStill();
     if(!image){ try{conn.send({type:'calib-denied',reason:'スマホのカメラ画像を取得できません'});}catch(e){} return; }
     const token=makeRemoteToken(); S.remoteCalibTokens.set(conn,token);
     try{ conn.send({type:'calib-snapshot',image,corners:S.corners,token,size:S.size}); toast('PCへ静止画を1枚送りました'); }catch(e){}
   } else if(data.type==='calib-apply'){
     const token=S.remoteCalibTokens.get(conn);
-    if(Date.now()>S.remoteCalibUntil){disarmRemoteCalibration();sendRemoteError(conn,'5分の許可時間が切れました。スマホでもう一度許可してください');return;}
+    if(S.controlConnection!==conn && Date.now()>S.remoteCalibUntil){disarmRemoteCalibration();sendRemoteError(conn,'許可時間が切れました。スマホでもう一度許可してください');return;}
     if(!token||data.token!==token){sendRemoteError(conn,'古い調整画面です。閉じて静止画を取り直してください');return;}
     if(!BLACK_SIDE_LABELS[data.side]||!validRemoteCorners(data.corners)){sendRemoteError(conn,'向きまたは四隅の形を確認してください');return;}
     reorientGame(S.calibrating?S.calibrationOriginalSide:S.blackSide,data.side);
@@ -2228,6 +2230,7 @@ function connectToHost(shortId){
   });
   conn.on('data', (data)=>{
     if(!current())return;
+    if(typeof receiveControlMessage==='function' && receiveControlMessage(data))return;
     if(data&&data.type==='calib-snapshot'){openRemoteSnapshot(data);return;}
     if(data&&data.type==='calib-denied'){toast(data.reason||'PC調整は許可されていません',true);return;}
     if(data&&data.type==='calib-applied'){closeRemoteCalibration();toast('スマホへ設定を反映しました');return;}
@@ -2771,5 +2774,6 @@ function init(){
 }
 document.addEventListener('DOMContentLoaded', init);
 </script>
+<script src="remote-control.js?v=1"></script>
 </body>
 </html>
